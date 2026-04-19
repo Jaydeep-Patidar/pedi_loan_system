@@ -92,8 +92,8 @@ REST_FRAMEWORK = {
 }
 
 # Razorpay
-RAZORPAY_KEY_ID = os.getenv('rzp_test_ScGDEQ87Nl2sRO')
-RAZORPAY_KEY_SECRET = os.getenv('J4vAdW4MakpxXXhb03K05jGd')
+RAZORPAY_KEY_ID = os.getenv('RAZORPAY_KEY_ID')
+RAZORPAY_KEY_SECRET = os.getenv('RAZORPAY_KEY_SECRET')
 
 # Login URL
 LOGIN_URL = '/login/'

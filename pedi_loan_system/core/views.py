@@ -4,6 +4,7 @@ from django.contrib.auth.decorators import login_required
 from django.contrib import messages
 from django.db.models import Sum, Q
 from django.http import HttpResponse
+from django.middleware.csrf import get_token
 from django.utils import timezone
 import razorpay
 import json
@@ -378,12 +379,12 @@ def loan_pay_online(request, loan_id):
             'razorpay_key_id': RAZORPAY_KEY_ID,
             'amount_paise': order_amount,
             'razorpay_order_id': razorpay_order['id'],
-            'csrf_token': request.COOKIES.get('csrftoken', ''),
+            'csrf_token': get_token(request),
             'success_url': request.build_absolute_uri(reverse('loan_payment_online_success')),
         }
         context = {
             'loan': loan,
-            'loan_payment_data': json.dumps(payment_data),
+            'loan_payment_data': payment_data,
         }
         return render(request, 'loan_payment_gateway.html', context)
 
@@ -470,8 +471,19 @@ def make_payment(request, payment_id):
             status='Created'
         )
 
+        payment_data = {
+            'razorpay_key_id': RAZORPAY_KEY_ID,
+            'amount_paise': order_amount,
+            'razorpay_order_id': razorpay_order['id'],
+            'csrf_token': get_token(request),
+            'success_url': request.build_absolute_uri(reverse('payment_success')),
+            'pedi_name': payment.pedi.name if payment.pedi else '',
+            'month': payment.month,
+            'year': payment.year,
+        }
         context = {
             'payment': payment,
+            'payment_data_json': payment_data,
             'razorpay_order_id': razorpay_order['id'],
             'razorpay_key_id': RAZORPAY_KEY_ID,
             'amount': payment.amount,           # for display
