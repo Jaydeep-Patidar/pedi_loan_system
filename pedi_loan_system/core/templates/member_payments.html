@@ -1,0 +1,40 @@
+{% extends 'base.html' %}
+{% load custom_filters %}
+{% block content %}
+<div class="card">
+    <div class="card-header">
+        <h4>My Monthly Payments</h4>
+    </div>
+    <div class="card-body">
+        <div class="table-responsive">
+            <table class="table table-bordered table-striped">
+                <thead>
+                    <tr>
+                        <th>Pedi Name</th><th>Month</th><th>Year</th><th>Amount</th><th>Status</th><th>Action</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for payment in payments %}
+                    <tr>
+                        <td>{{ payment.pedi.name }}</td>
+                        <td>{{ payment.month }}</td>
+                        <td>{{ payment.year }}</td>
+                        <td>{{ payment.amount|currency }}</td>
+                        <td>{% if payment.status == 'Paid' %}<span class="badge bg-success">Paid</span>{% else %}<span class="badge bg-danger">Pending</span>{% endif %}</td>
+                        <td>
+                            {% if payment.status == 'Pending' %}
+                            <a href="{% url 'make_payment' payment.id %}" class="btn btn-sm btn-primary">Pay Now</a>
+                            {% else %}
+                            <span class="text-muted">Paid on {{ payment.payment_date|date:"d-m-Y" }}</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% empty %}
+                    <tr><td colspan="6" class="text-center">No payment records.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}

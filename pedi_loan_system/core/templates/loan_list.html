@@ -1,0 +1,44 @@
+{% extends 'base.html' %}
+{% load custom_filters %}
+{% block content %}
+<div class="card">
+    <div class="card-header d-flex justify-content-between">
+        <h4>Loans</h4>
+        <a href="{% url 'loan_create' %}" class="btn btn-primary">Issue Loan</a>
+    </div>
+    <div class="card-body">
+        <form method="get" class="mb-3">
+            <select name="status" class="form-select w-25 d-inline" onchange="this.form.submit()">
+                <option value="">All Status</option>
+                <option value="Active" {% if request.GET.status == 'Active' %}selected{% endif %}>Active</option>
+                <option value="Closed" {% if request.GET.status == 'Closed' %}selected{% endif %}>Closed</option>
+            </select>
+        </form>
+        <div class="table-responsive">
+            <table class="table table-bordered">
+                <thead>
+                    <tr>
+                        <th>Member</th><th>Amount</th><th>Interest</th><th>Total Payable</th><th>Paid</th><th>Due</th><th>Status</th><th>Action</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for loan in loans %}
+                    <tr>
+                        <td>{{ loan.member.user.get_full_name }}</td>
+                        <td>{{ loan.amount|currency }}</td>
+                        <td>{{ loan.interest_rate }}%</td>
+                        <td>{{ loan.total_payable|currency }}</td>
+                        <td>{{ loan.paid_amount|currency }}</td>
+                        <td class="{% if loan.remaining_due > 0 %}text-danger{% endif %}">{{ loan.remaining_due|currency }}</td>
+                        <td>{% if loan.status == 'Active' %}<span class="badge bg-warning">Active</span>{% else %}<span class="badge bg-success">Closed</span>{% endif %}</td>
+                        <td><a href="{% url 'loan_edit' loan.id %}" class="btn btn-sm btn-warning">Edit</a></td>
+                    </tr>
+                    {% empty %}
+                    <tr><td colspan="8" class="text-center">No loans found.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}

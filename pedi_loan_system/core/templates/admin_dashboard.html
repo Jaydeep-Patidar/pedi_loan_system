@@ -1,0 +1,86 @@
+{% extends 'base.html' %}
+{% load custom_filters %}
+{% block content %}
+<div class="container-fluid">
+    <h2 class="mb-4">Admin Dashboard</h2>
+    <div class="row">
+        <div class="col-md-3 mb-3">
+            <div class="card text-white bg-primary"><div class="card-body"><h5>Total Members</h5><h2>{{ total_members }}</h2></div></div>
+        </div>
+        <div class="col-md-3 mb-3">
+            <div class="card text-white bg-success"><div class="card-body"><h5>Total Collection</h5><h2>{{ total_collection|currency }}</h2></div></div>
+        </div>
+        <div class="col-md-3 mb-3">
+            <div class="card text-white bg-warning"><div class="card-body"><h5>Loans Given</h5><h2>{{ total_loans|currency }}</h2></div></div>
+        </div>
+        <div class="col-md-3 mb-3">
+            <div class="card text-white bg-danger"><div class="card-body"><h5>Pending Dues</h5><h2>{{ pending_dues|currency }}</h2></div></div>
+        </div>
+    </div>
+
+    <div class="row">
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-header">Monthly Collection ({{ current_year }})</div>
+                <div class="card-body">
+                    <canvas id="monthlyChart"></canvas>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-header">Recent Payments</div>
+                <div class="card-body">
+                    <div class="table-responsive">
+                        {% if recent_payments %}
+                        <table class="table table-sm">
+                            <thead>
+                                <tr><th>Member</th><th>Pedi</th><th>Amount</th><th>Date</th></tr>
+                            </thead>
+                            <tbody>
+                                {% for p in recent_payments %}
+                                <tr>
+                                    <td>{{ p.member.user.get_full_name }}</td>
+                                    <td>{{ p.pedi.name }}</td>
+                                    <td>{{ p.amount|currency }}</td>
+                                    <td>{{ p.payment_date|date:"d-m-Y" }}</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                        {% else %}
+                        <p class="text-muted">No recent payments.</p>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+{{ monthly_summary_json|json_script:"monthlyData" }}
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+    const monthlyData = JSON.parse(document.getElementById('monthlyData').textContent);
+    const months = monthlyData.map(item => item.month);
+    const amounts = monthlyData.map(item => item.amount);
+
+    const ctx = document.getElementById('monthlyChart').getContext('2d');
+    new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: months,
+            datasets: [{
+                label: 'Amount (₹)',
+                data: amounts,
+                backgroundColor: '#007bff'
+            }]
+        },
+        options: {
+            responsive: true,
+            scales: { y: { beginAtZero: true } }
+        }
+    });
+</script>
+{% endblock %}

@@ -1,0 +1,23 @@
+{% extends 'base.html' %}
+{% load custom_filters %}
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header bg-primary text-white">
+                <h4>Make Payment</h4>
+            </div>
+            <div class="card-body">
+                <p><strong>Pedi:</strong> {{ payment.pedi.name }}</p>
+                <p><strong>Month/Year:</strong> {{ payment.month }}/{{ payment.year }}</p>
+                <p><strong>Amount:</strong> {{ payment.amount|currency }}</p>
+                <form method="post">
+                    {% csrf_token %}
+                    <button type="submit" class="btn btn-success w-100">Proceed to Pay with Razorpay</button>
+                </form>
+                <a href="{% url 'member_payments' %}" class="btn btn-secondary w-100 mt-2">Cancel</a>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

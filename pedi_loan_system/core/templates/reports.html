@@ -1,0 +1,39 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="card">
+    <div class="card-header">
+        <h4>Export Reports</h4>
+    </div>
+    <div class="card-body">
+        <div class="row">
+            <div class="col-md-4 mb-3">
+                <div class="card text-center">
+                    <div class="card-body">
+                        <i class="fas fa-users fa-3x text-primary"></i>
+                        <h5 class="mt-2">Members Report</h5>
+                        <a href="{% url 'export_members' %}" class="btn btn-primary">Export to Excel</a>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4 mb-3">
+                <div class="card text-center">
+                    <div class="card-body">
+                        <i class="fas fa-money-bill-wave fa-3x text-success"></i>
+                        <h5 class="mt-2">Payments Report</h5>
+                        <a href="{% url 'export_payments' %}" class="btn btn-success">Export to Excel</a>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4 mb-3">
+                <div class="card text-center">
+                    <div class="card-body">
+                        <i class="fas fa-hand-holding-usd fa-3x text-warning"></i>
+                        <h5 class="mt-2">Loans Report</h5>
+                        <a href="{% url 'export_loans' %}" class="btn btn-warning">Export to Excel</a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

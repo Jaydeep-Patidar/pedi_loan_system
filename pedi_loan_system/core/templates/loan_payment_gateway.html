@@ -1,0 +1,46 @@
+{% extends 'base.html' %}
+{% block extra_js %}
+<script src="https://checkout.razorpay.com/v1/checkout.js"></script>
+{{ loan_payment_data|json_script:"loan-payment-data" }}
+<script>
+    document.addEventListener("DOMContentLoaded", function() {
+        const data = JSON.parse(document.getElementById('loan-payment-data').textContent);
+        var options = {
+            key: data.razorpay_key_id,
+            amount: data.amount_paise,
+            currency: "INR",
+            name: "Pedi Loan System",
+            description: "Loan Payment",
+            order_id: data.razorpay_order_id,
+            handler: function(response) {
+                var form = document.createElement('form');
+                form.method = 'POST';
+                form.action = data.success_url;
+                var csrf = document.createElement('input');
+                csrf.type = 'hidden';
+                csrf.name = 'csrfmiddlewaretoken';
+                csrf.value = data.csrf_token;
+                form.appendChild(csrf);
+                for (let [key, value] of Object.entries(response)) {
+                    let input = document.createElement('input');
+                    input.type = 'hidden';
+                    input.name = key;
+                    input.value = value;
+                    form.appendChild(input);
+                }
+                document.body.appendChild(form);
+                form.submit();
+            },
+            theme: { color: "#007bff" }
+        };
+        var rzp = new Razorpay(options);
+        rzp.open();
+    });
+</script>
+{% endblock %}
+{% block content %}
+<div class="text-center">
+    <div class="spinner-border text-primary" role="status"><span class="visually-hidden">Loading...</span></div>
+    <p>Redirecting to payment gateway...</p>
+</div>
+{% endblock %}

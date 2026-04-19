@@ -1,0 +1,44 @@
+{% extends 'base.html' %}
+{% load custom_filters %}
+{% block content %}
+<div class="card">
+    <div class="card-header">
+        <h4>My Loans</h4>
+    </div>
+    <div class="card-body">
+        <div class="table-responsive">
+            <table class="table table-bordered table-striped">
+                <thead>
+                    <tr>
+                        <th>Loan Amount</th><th>Interest Rate</th><th>Total Payable</th>
+                        <th>Paid Amount</th><th>Remaining Due</th><th>Issue Date</th><th>Due Date</th><th>Status</th><th>Action</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for loan in loans %}
+                    <tr>
+                        <td>{{ loan.amount|currency }}</td>
+                        <td>{{ loan.interest_rate }}%</td>
+                        <td>{{ loan.total_payable|currency }}</td>
+                        <td>{{ loan.paid_amount|currency }}</td>
+                        <td class="{% if loan.remaining_due > 0 %}text-danger{% endif %}">{{ loan.remaining_due|currency }}</td>
+                        <td>{{ loan.issued_date|date:"d-m-Y" }}</td>
+                        <td>{{ loan.due_date|date:"d-m-Y" }}</td>
+                        <td>{% if loan.status == 'Active' %}<span class="badge bg-warning">Active</span>{% else %}<span class="badge bg-success">Closed</span>{% endif %}</td>
+                        <td>
+    {% if loan.status == 'Active' %}
+        <a href="{% url 'loan_pay_online' loan.id %}" class="btn btn-sm btn-primary">Pay Online</a>
+    {% else %}
+        <span class="badge bg-secondary">Closed</span>
+    {% endif %}
+</td>
+                    </tr>
+                    {% empty %}
+                    <tr><td colspan="8" class="text-center">No loans found.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}

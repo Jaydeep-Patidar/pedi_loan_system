@@ -1,0 +1,96 @@
+{% extends 'base.html' %}
+{% load custom_filters %}
+{% block content %}
+<div class="container-fluid">
+    <h2 class="mb-4">Member Dashboard</h2>
+    
+    <div class="row">
+        <div class="col-md-4 mb-3">
+            <div class="card text-white bg-primary">
+                <div class="card-body">
+                    <h5 class="card-title">Total Paid Amount</h5>
+                    <h2>{{ total_paid|currency }}</h2>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4 mb-3">
+            <div class="card text-white bg-warning">
+                <div class="card-body">
+                    <h5 class="card-title">Total Loan Due</h5>
+                    <h2>{{ total_loan_due|currency }}</h2>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4 mb-3">
+            <div class="card text-white bg-info">
+                <div class="card-body">
+                    <h5 class="card-title">Active Loans</h5>
+                    <h2>{{ active_loans.count }}</h2>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row mt-4">
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-header">
+                    <h5>Active Loans</h5>
+                </div>
+                <div class="card-body">
+                    {% if active_loans %}
+                    <div class="table-responsive">
+                        <table class="table table-bordered">
+                            <thead>
+                                <tr><th>Amount</th><th>Interest</th><th>Total Payable</th><th>Paid</th><th>Due</th></tr>
+                            </thead>
+                            <tbody>
+                                {% for loan in active_loans %}
+                                <tr>
+                                    <td>{{ loan.amount|currency }}</td>
+                                    <td>{{ loan.interest_rate }}%</td>
+                                    <td>{{ loan.total_payable|currency }}</td>
+                                    <td>{{ loan.paid_amount|currency }}</td>
+                                    <td class="{% if loan.remaining_due > 0 %}text-danger{% endif %}">{{ loan.remaining_due|currency }}</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    {% else %}
+                    <p>No active loans.</p>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-header">
+                    <h5>Recent Payments</h5>
+                </div>
+                <div class="card-body">
+                    {% if recent_payments %}
+                    <div class="table-responsive">
+                        <table class="table table-bordered">
+                            <thead><tr><th>Pedi</th><th>Month/Year</th><th>Amount</th><th>Date</th></tr></thead>
+                            <tbody>
+                                {% for p in recent_payments %}
+                                <tr>
+                                    <td>{{ p.pedi.name }}</td>
+                                    <td>{{ p.month }}/{{ p.year }}</td>
+                                    <td>{{ p.amount|currency }}</td>
+                                    <td>{{ p.payment_date|date:"d-m-Y" }}</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    {% else %}
+                    <p>No payments yet.</p>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
