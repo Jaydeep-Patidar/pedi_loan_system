@@ -46,4 +46,11 @@ urlpatterns = [
     path('export/members/', views.export_members_excel, name='export_members'),
     path('export/payments/', views.export_payments_excel, name='export_payments'),
     path('export/loans/', views.export_loans_excel, name='export_loans'),
+
+    # Loan Application
+    path('apply-loan/', views.apply_loan, name='apply_loan'),
+    path('staff/loan-applications/', views.admin_loan_applications, name='admin_loan_applications'),
+    path('staff/loan-application/<int:pk>/approve/', views.approve_loan_application, name='approve_loan_application'),
+    path('staff/loan-application/<int:pk>/reject/', views.reject_loan_application, name='reject_loan_application'),
+    path('staff/loan-settings/', views.admin_loan_settings, name='admin_loan_settings'),
 ]

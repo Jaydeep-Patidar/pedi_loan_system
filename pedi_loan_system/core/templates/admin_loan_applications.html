@@ -1,0 +1,51 @@
+{% extends 'base.html' %}
+{% load custom_filters %}
+{% block content %}
+<div class="card">
+    <div class="card-header">
+        <h4>Loan Applications</h4>
+    </div>
+    <div class="card-body">
+        <form method="get" class="mb-3">
+            <select name="status" class="form-select w-25" onchange="this.form.submit()">
+                <option value="">All</option>
+                <option value="Pending" {% if request.GET.status == 'Pending' %}selected{% endif %}>Pending</option>
+                <option value="Approved" {% if request.GET.status == 'Approved' %}selected{% endif %}>Approved</option>
+                <option value="Rejected" {% if request.GET.status == 'Rejected' %}selected{% endif %}>Rejected</option>
+            </select>
+        </form>
+        <div class="table-responsive">
+            <table class="table table-bordered">
+                <thead>
+                    <tr><th>Member</th><th>Amount</th><th>Purpose</th><th>Applied Date</th><th>Status</th><th>Action</th></tr>
+                </thead>
+                <tbody>
+                    {% for app in applications %}
+                    <tr>
+                        <td>{{ app.member.user.get_full_name }}</td>
+                        <td>{{ app.requested_amount|currency }}</td>
+                        <td>{{ app.purpose|truncatechars:50 }}</td>
+                        <td>{{ app.applied_date|date:"d-m-Y" }}</td>
+                        <td>
+                            {% if app.status == 'Pending' %}<span class="badge bg-warning">Pending</span>
+                            {% elif app.status == 'Approved' %}<span class="badge bg-success">Approved</span>
+                            {% else %}<span class="badge bg-danger">Rejected</span>{% endif %}
+                        </td>
+                        <td>
+                            {% if app.status == 'Pending' %}
+                            <a href="{% url 'approve_loan_application' app.id %}" class="btn btn-sm btn-success">Approve</a>
+                            <a href="{% url 'reject_loan_application' app.id %}" class="btn btn-sm btn-danger" onclick="return confirm('Reject this application?')">Reject</a>
+                            {% else %}
+                            <span class="text-muted">Processed</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% empty %}
+                    <tr><td colspan="6" class="text-center">No applications found.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}

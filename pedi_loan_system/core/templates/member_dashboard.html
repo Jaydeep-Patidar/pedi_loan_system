@@ -30,6 +30,54 @@
             </div>
         </div>
     </div>
+    <!-- ========== LOAN APPLICATION STATUS ALERT ========== -->
+     
+    {% if member.loan_applications.all %}
+<div class="card mt-3">
+    <div class="card-header">
+        <h5>My Loan Applications</h5>
+    </div>
+    <div class="card-body">
+        <div class="table-responsive">
+            <table class="table table-sm">
+                <thead>
+                    <tr>
+                        <th>Requested Amount</th>
+                        <th>Applied Date</th>
+                        <th>Status</th>
+                        <th>Action</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for app in member.loan_applications.all|dictsortreversed:"applied_date" %}
+                    <tr>
+                        <td>{{ app.requested_amount|currency }}</td>
+                        <td>{{ app.applied_date|date:"d-m-Y" }}</td>
+                        <td>
+                            {% if app.status == 'Pending' %}
+                                <span class="badge bg-warning">Pending</span>
+                            {% elif app.status == 'Approved' %}
+                                <span class="badge bg-success">Approved</span>
+                            {% elif app.status == 'Rejected' %}
+                                <span class="badge bg-danger">Rejected</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if app.status == 'Rejected' %}
+                                <a href="{% url 'apply_loan' %}" class="btn btn-sm btn-primary">Apply Again</a>
+                            {% elif app.status == 'Approved' %}
+                                <a href="{% url 'member_loans' %}" class="btn btn-sm btn-info">View Loan</a>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endif %}
+    <!-- ================================================= -->
 
     <div class="row mt-4">
         <div class="col-md-6">

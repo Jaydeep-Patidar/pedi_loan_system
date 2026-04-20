@@ -149,3 +149,34 @@ class Transaction(models.Model):
     status = models.CharField(max_length=20, choices=[('Created', 'Created'), ('Success', 'Success'), ('Failed', 'Failed')], default='Created')
     created_at = models.DateTimeField(auto_now_add=True)
 
+
+class LoanApplicationSettings(models.Model):
+    start_date = models.DateField()
+    end_date = models.DateField()
+    default_interest_rate = models.DecimalField(max_digits=5, decimal_places=2, default=10.0)
+    default_loan_duration_months = models.PositiveIntegerField(default=12)
+
+    class Meta:
+        verbose_name_plural = "Loan Application Settings"
+
+    def __str__(self):
+        return f"Applications open from {self.start_date} to {self.end_date}"
+
+class LoanApplication(models.Model):
+    STATUS_CHOICES = (
+        ('Pending', 'Pending'),
+        ('Approved', 'Approved'),
+        ('Rejected', 'Rejected'),
+    )
+    member = models.ForeignKey(Member, on_delete=models.CASCADE, related_name='loan_applications')
+    requested_amount = models.DecimalField(max_digits=10, decimal_places=2)
+    purpose = models.TextField(blank=True)
+    status = models.CharField(max_length=10, choices=STATUS_CHOICES, default='Pending')
+    applied_date = models.DateTimeField(auto_now_add=True)
+    admin_remarks = models.TextField(blank=True)
+    approved_date = models.DateTimeField(null=True, blank=True)
+    approved_interest_rate = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
+    approved_due_date = models.DateField(null=True, blank=True)
+
+    def __str__(self):
+        return f"{self.member.user.username} - ₹{self.requested_amount} - {self.status}"

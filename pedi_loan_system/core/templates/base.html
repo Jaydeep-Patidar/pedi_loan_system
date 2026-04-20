@@ -46,12 +46,15 @@
 <a class="nav-link" href="{% url 'pedi_list' %}"><i class="fas fa-chart-line"></i> Pedi Committees</a>
 <a class="nav-link" href="{% url 'monthly_payments_list' %}"><i class="fas fa-money-bill-wave"></i> Monthly Payments</a>
 <a class="nav-link" href="{% url 'loan_list' %}"><i class="fas fa-hand-holding-usd"></i> Loans</a>
+<a class="nav-link" href="{% url 'admin_loan_settings' %}"><i class="fas fa-cog"></i> Loan Settings</a>
+<a class="nav-link" href="{% url 'admin_loan_applications' %}"><i class="fas fa-file-alt"></i> Loan Applications</a>
 <a class="nav-link" href="{% url 'admin_loan_payments' %}"><i class="fas fa-history"></i> Loan Payments</a>
 <a class="nav-link" href="{% url 'reports' %}"><i class="fas fa-file-alt"></i> Reports</a>
                     {% else %}
 <a class="nav-link" href="{% url 'member_dashboard' %}"><i class="fas fa-tachometer-alt"></i> Dashboard</a>
 <a class="nav-link" href="{% url 'member_payments' %}"><i class="fas fa-receipt"></i> My Payments</a>
 <a class="nav-link" href="{% url 'member_loans' %}"><i class="fas fa-hand-holding-usd"></i> My Loans</a>
+<a class="nav-link" href="{% url 'apply_loan' %}"><i class="fas fa-hand-holding-usd"></i> Apply Loan</a>
 <a class="nav-link" href="{% url 'loan_payment_history' %}"><i class="fas fa-history"></i> Loan Payment History</a>   <!-- new line -->
 <a class="nav-link" href="{% url 'payment_history' %}"><i class="fas fa-history"></i> Payment History</a>
 {% endif %}

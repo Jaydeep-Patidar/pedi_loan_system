@@ -12,10 +12,13 @@ from datetime import date
 from decimal import Decimal
 from django.urls import reverse
 
-from .models import Member, Pedi, MemberPedi, Payment, Loan, LoanPayment, Transaction, LoanTransaction
+from .models import Member, Pedi, MemberPedi, Payment, Loan, LoanPayment, Transaction, LoanTransaction, LoanApplication, LoanApplicationSettings
 from .forms import MemberForm, PediForm, LoanForm
 from .decorators import admin_required, member_required
 from pedi_loan_system.settings import RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET
+
+from datetime import timedelta
+from dateutil.relativedelta import relativedelta
 
 
 # Initialize Razorpay client
@@ -608,3 +611,147 @@ def export_loans_excel(request):
     response['Content-Disposition'] = 'attachment; filename=loans.xlsx'
     wb.save(response)
     return response
+
+
+@login_required
+@member_required
+def apply_loan(request):
+    settings = LoanApplicationSettings.objects.first()
+    if not settings:
+        messages.error(request, 'Loan application period not configured.')
+        return redirect('member_dashboard')
+
+    today = timezone.now().date()
+    if today < settings.start_date or today > settings.end_date:
+        messages.warning(request, 'Loan applications are currently closed.')
+        return redirect('member_dashboard')
+
+    # --- NEW: Check for existing active loan ---
+    member = request.user.member_profile
+    if Loan.objects.filter(member=member, status='Active').exists():
+        messages.warning(request, 'You already have an active loan. You cannot apply for a new loan until the current loan is fully paid.')
+        return redirect('member_dashboard')
+    # -------------------------------------------
+
+    # Check if member already has a pending application
+    if LoanApplication.objects.filter(member=member, status='Pending').exists():
+        messages.error(request, 'You already have a pending loan application.')
+        return redirect('member_dashboard')
+
+    if request.method == 'POST':
+        amount = Decimal(request.POST.get('amount', 0))
+        purpose = request.POST.get('purpose', '')
+        if amount <= 0:
+            messages.error(request, 'Please enter a valid amount.')
+            return render(request, 'apply_loan.html', {'settings': settings})
+
+        LoanApplication.objects.create(
+            member=member,
+            requested_amount=amount,
+            purpose=purpose,
+            status='Pending'
+        )
+        messages.success(request, 'Your loan application has been submitted.')
+        return redirect('member_dashboard')
+
+    return render(request, 'apply_loan.html', {'settings': settings})
+
+@login_required
+@admin_required
+def admin_loan_applications(request):
+    applications = LoanApplication.objects.select_related('member__user').order_by('-applied_date')
+    status_filter = request.GET.get('status')
+    if status_filter:
+        applications = applications.filter(status=status_filter)
+    return render(request, 'admin_loan_applications.html', {'applications': applications})
+
+@login_required
+@admin_required
+def approve_loan_application(request, pk):
+    application = get_object_or_404(LoanApplication, pk=pk)
+    if application.status != 'Pending':
+        messages.warning(request, 'This application is no longer pending.')
+        return redirect('admin_loan_applications')
+
+    settings = LoanApplicationSettings.objects.first()
+    if request.method == 'POST':
+        interest_rate = Decimal(request.POST.get('interest_rate', settings.default_interest_rate))
+        due_date = request.POST.get('due_date')
+        if not due_date:
+            due_date = (timezone.now().date() + relativedelta(months=settings.default_loan_duration_months))
+        else:
+            from datetime import datetime
+            due_date = datetime.strptime(due_date, '%Y-%m-%d').date()
+
+        # Create actual Loan
+        loan = Loan.objects.create(
+            member=application.member,
+            amount=application.requested_amount,
+            interest_rate=interest_rate,
+            due_date=due_date,
+            status='Active'
+        )
+        # Update application
+        application.status = 'Approved'
+        application.approved_date = timezone.now()
+        application.approved_interest_rate = interest_rate
+        application.approved_due_date = due_date
+        application.admin_remarks = request.POST.get('remarks', '')
+        application.save()
+
+        messages.success(request, f'Loan application approved. Loan #{loan.id} created.')
+        return redirect('admin_loan_applications')
+
+    # Pre-fill form with defaults
+    default_due = timezone.now().date() + relativedelta(months=settings.default_loan_duration_months)
+    context = {
+        'application': application,
+        'default_interest': settings.default_interest_rate,
+        'default_due': default_due,
+    }
+    return render(request, 'approve_loan_application.html', context)
+
+@login_required
+@admin_required
+def reject_loan_application(request, pk):
+    application = get_object_or_404(LoanApplication, pk=pk)
+    if application.status != 'Pending':
+        messages.warning(request, 'This application is no longer pending.')
+        return redirect('admin_loan_applications')
+    application.status = 'Rejected'
+    application.save()
+    messages.success(request, 'Loan application rejected.')
+    return redirect('admin_loan_applications')
+
+# admin loan setting view
+@login_required
+@admin_required
+def admin_loan_settings(request):
+    settings = LoanApplicationSettings.objects.first()
+    if not settings:
+        settings = LoanApplicationSettings.objects.create(
+            start_date=timezone.now().date(),
+            end_date=timezone.now().date() + timedelta(days=30),
+            default_interest_rate=10.0,
+            default_loan_duration_months=12
+        )
+
+    if request.method == 'POST':
+        start_date = request.POST.get('start_date')
+        end_date = request.POST.get('end_date')
+        interest_rate = request.POST.get('default_interest_rate')
+        duration = request.POST.get('default_loan_duration_months')
+        if start_date and end_date and interest_rate and duration:
+            from datetime import datetime
+            settings.start_date = datetime.strptime(start_date, '%Y-%m-%d').date()
+            settings.end_date = datetime.strptime(end_date, '%Y-%m-%d').date()
+            settings.default_interest_rate = Decimal(interest_rate)
+            settings.default_loan_duration_months = int(duration)
+            settings.save()
+            messages.success(request, 'Loan application settings updated.')
+        else:
+            messages.error(request, 'Please fill all fields.')
+        return redirect('admin_loan_settings')
+
+    context = {'settings': settings}
+    return render(request, 'admin_loan_settings.html', context)

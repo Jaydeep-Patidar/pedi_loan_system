@@ -1,0 +1,35 @@
+{% extends 'base.html' %}
+{% load custom_filters %}
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header bg-success text-white">
+                <h4>Approve Loan Application</h4>
+            </div>
+            <div class="card-body">
+                <p><strong>Member:</strong> {{ application.member.user.get_full_name }}</p>
+                <p><strong>Requested Amount:</strong> {{ application.requested_amount|currency }}</p>
+                <p><strong>Purpose:</strong> {{ application.purpose|default:"-" }}</p>
+                <form method="post">
+                    {% csrf_token %}
+                    <div class="mb-3">
+                        <label>Interest Rate (%)</label>
+                        <input type="number" name="interest_rate" step="0.5" value="{{ default_interest }}" class="form-control" required>
+                    </div>
+                    <div class="mb-3">
+                        <label>Due Date</label>
+                        <input type="date" name="due_date" value="{{ default_due|date:'Y-m-d' }}" class="form-control" required>
+                    </div>
+                    <div class="mb-3">
+                        <label>Remarks (optional)</label>
+                        <textarea name="remarks" class="form-control" rows="2"></textarea>
+                    </div>
+                    <button type="submit" class="btn btn-primary">Confirm Approval & Create Loan</button>
+                    <a href="{% url 'admin_loan_applications' %}" class="btn btn-secondary">Cancel</a>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
