@@ -9,15 +9,13 @@ from django.utils import timezone
 import razorpay
 import json
 from datetime import date
+from decimal import Decimal
+from django.urls import reverse
 
-from .models import Member, Pedi, MemberPedi, Payment, Loan, LoanPayment, Transaction
+from .models import Member, Pedi, MemberPedi, Payment, Loan, LoanPayment, Transaction, LoanTransaction
 from .forms import MemberForm, PediForm, LoanForm
 from .decorators import admin_required, member_required
 from pedi_loan_system.settings import RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET
-import json
-from decimal import Decimal
-from django.urls import reverse
-from .models import Loan, LoanPayment, LoanTransaction
 
 
 # Initialize Razorpay client
