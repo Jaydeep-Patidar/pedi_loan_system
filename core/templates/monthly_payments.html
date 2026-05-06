@@ -1,0 +1,70 @@
+{% extends 'base.html' %}
+{% load custom_filters %}
+{% block content %}
+<div class="card">
+    <div class="card-header">
+        <h4>Monthly Payments</h4>
+    </div>
+    <div class="card-body">
+        <form method="get" class="row g-3 mb-3">
+            <div class="col-md-4">
+                <select name="pedi_id" class="form-select" onchange="this.form.submit()">
+                    <option value="">Select Pedi</option>
+                    {% for p in pedis %}
+                    <option value="{{ p.id }}" {% if selected_pedi.id == p.id %}selected{% endif %}>{{ p.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-2">
+                <select name="month" class="form-select">
+                    {% for m in months %}
+                    <option value="{{ m }}" {% if current_month == m %}selected{% endif %}>{{ m }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-2">
+                <input type="number" name="year" class="form-control" value="{{ current_year }}">
+            </div>
+            <div class="col-md-2">
+                <button type="submit" class="btn btn-primary">Filter</button>
+            </div>
+        </form>
+
+        {% if selected_pedi %}
+        <form method="post">
+            {% csrf_token %}
+            <div class="table-responsive">
+                <table class="table table-bordered">
+                    <thead>
+                        <tr>
+                            <th>Member</th><th>Amount</th><th>Status</th><th>Mark Paid</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for item in payments %}
+                        <tr>
+                            <td>{{ item.member.user.get_full_name }}</td>
+                            <td>{{ item.amount|currency }}</td>
+                            <td>{% if item.status == 'Paid' %}<span class="badge bg-success">Paid</span>{% else %}<span class="badge bg-danger">Pending</span>{% endif %}</td>
+                            <td>
+                                {% if item.status == 'Pending' %}
+                                <input type="checkbox" name="payment_{{ item.payment.id }}" value="paid">
+                                {% else %}
+                                <span class="text-muted">Already Paid</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% empty %}
+                        <tr><td colspan="4">No members assigned to this Pedi.</td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            <button type="submit" class="btn btn-success">Update Payments</button>
+        </form>
+        {% else %}
+        <p class="text-muted">Select a Pedi to manage monthly payments.</p>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

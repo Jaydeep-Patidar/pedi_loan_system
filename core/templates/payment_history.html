@@ -1,0 +1,34 @@
+{% extends 'base.html' %}
+{% load custom_filters %}
+{% block content %}
+<div class="card">
+    <div class="card-header">
+        <h4>Payment History</h4>
+    </div>
+    <div class="card-body">
+        <div class="table-responsive">
+            <table class="table table-bordered table-striped">
+                <thead>
+                    <tr>
+                        <th>Pedi</th><th>Month/Year</th><th>Amount</th><th>Payment Date</th><th>Method</th><th>Transaction ID</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for p in payments %}
+                    <tr>
+                        <td>{{ p.pedi.name }}</td>
+                        <td>{{ p.month }}/{{ p.year }}</td>
+                        <td>{{ p.amount|currency }}</td>
+                        <td>{{ p.payment_date|date:"d-m-Y H:i" }}</td>
+                        <td>{{ p.payment_method }}</td>
+                        <td>{{ p.transaction_id|default:"-" }}</td>
+                    </tr>
+                    {% empty %}
+                    <tr><td colspan="6" class="text-center">No payment history.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}

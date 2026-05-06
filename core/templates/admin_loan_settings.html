@@ -1,0 +1,36 @@
+{% extends 'base.html' %}
+{% load custom_filters %}
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header bg-primary text-white">
+                <h4>Loan Application Settings</h4>
+            </div>
+            <div class="card-body">
+                <form method="post">
+                    {% csrf_token %}
+                    <div class="mb-3">
+                        <label>Application Start Date</label>
+                        <input type="date" name="start_date" value="{{ settings.start_date|date:'Y-m-d' }}" class="form-control" required>
+                    </div>
+                    <div class="mb-3">
+                        <label>Application End Date</label>
+                        <input type="date" name="end_date" value="{{ settings.end_date|date:'Y-m-d' }}" class="form-control" required>
+                    </div>
+                    <div class="mb-3">
+                        <label>Default Interest Rate (%)</label>
+                        <input type="number" step="0.5" name="default_interest_rate" value="{{ settings.default_interest_rate }}" class="form-control" required>
+                    </div>
+                    <div class="mb-3">
+                        <label>Default Loan Duration (months)</label>
+                        <input type="number" name="default_loan_duration_months" value="{{ settings.default_loan_duration_months }}" class="form-control" required>
+                    </div>
+                    <button type="submit" class="btn btn-primary">Save Settings</button>
+                    <a href="{% url 'admin_dashboard' %}" class="btn btn-secondary">Cancel</a>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

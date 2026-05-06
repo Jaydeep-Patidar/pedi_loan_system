@@ -1,0 +1,29 @@
+{% extends 'base.html' %}
+{% load custom_filters %}
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header bg-primary text-white">
+                <h4>Pay Loan Online</h4>
+            </div>
+            <div class="card-body">
+                <p><strong>Loan Amount:</strong> {{ loan.amount|currency }}</p>
+                <p><strong>Interest Rate:</strong> {{ loan.interest_rate }}%</p>
+                <p><strong>Total Payable:</strong> {{ loan.total_payable|currency }}</p>
+                <p><strong>Already Paid:</strong> {{ loan.paid_amount|currency }}</p>
+                <p><strong>Remaining Due:</strong> <span class="text-danger">{{ loan.remaining_due|currency }}</span></p>
+                <form method="post">
+                    {% csrf_token %}
+                    <div class="mb-3">
+                        <label class="form-label">Amount to Pay (₹)</label>
+                        <input type="number" name="amount" step="0.01" min="0.01" max="{{ loan.remaining_due }}" class="form-control" required>
+                    </div>
+                    <button type="submit" class="btn btn-success w-100">Proceed to Pay</button>
+                </form>
+                <a href="{% url 'member_loans' %}" class="btn btn-secondary w-100 mt-2">Cancel</a>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

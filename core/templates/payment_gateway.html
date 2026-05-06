@@ -1,0 +1,63 @@
+{% extends 'base.html' %}
+{% block extra_js %}
+<script src="https://checkout.razorpay.com/v1/checkout.js"></script>
+{{ payment_data_json|json_script:"payment-data" }}
+<script>
+    document.addEventListener("DOMContentLoaded", function() {
+        // Parse the safe JSON data
+        const paymentData = JSON.parse(document.getElementById('payment-data').textContent);
+        
+        var options = {
+            key: paymentData.razorpay_key_id,
+            amount: paymentData.amount_paise,
+            currency: "INR",
+            name: "Pedi Loan System",
+            description: "Payment for " + paymentData.pedi_name + " - Month " + paymentData.month + "/" + paymentData.year,
+            order_id: paymentData.razorpay_order_id,
+            handler: function(response) {
+                var form = document.createElement('form');
+                form.method = 'POST';
+                form.action = paymentData.success_url;
+                
+                var csrf = document.createElement('input');
+                csrf.type = 'hidden';
+                csrf.name = 'csrfmiddlewaretoken';
+                csrf.value = paymentData.csrf_token;
+                form.appendChild(csrf);
+                
+                var razorpay_payment_id = document.createElement('input');
+                razorpay_payment_id.type = 'hidden';
+                razorpay_payment_id.name = 'razorpay_payment_id';
+                razorpay_payment_id.value = response.razorpay_payment_id;
+                form.appendChild(razorpay_payment_id);
+                
+                var razorpay_order_id = document.createElement('input');
+                razorpay_order_id.type = 'hidden';
+                razorpay_order_id.name = 'razorpay_order_id';
+                razorpay_order_id.value = response.razorpay_order_id;
+                form.appendChild(razorpay_order_id);
+                
+                var razorpay_signature = document.createElement('input');
+                razorpay_signature.type = 'hidden';
+                razorpay_signature.name = 'razorpay_signature';
+                razorpay_signature.value = response.razorpay_signature;
+                form.appendChild(razorpay_signature);
+                
+                document.body.appendChild(form);
+                form.submit();
+            },
+            theme: { color: "#007bff" }
+        };
+        var rzp = new Razorpay(options);
+        rzp.open();
+    });
+</script>
+{% endblock %}
+{% block content %}
+<div class="text-center">
+    <div class="spinner-border text-primary" role="status">
+        <span class="visually-hidden">Loading...</span>
+    </div>
+    <p>Redirecting to payment gateway...</p>
+</div>
+{% endblock %}
