@@ -37,6 +37,7 @@ urlpatterns = [
     path('loans/', views.loan_list, name='loan_list'),
     path('loans/create/', views.loan_create, name='loan_create'),
     path('loans/<int:pk>/edit/', views.loan_edit, name='loan_edit'),
+    path('loans/<int:loan_id>/admin-pay/', views.admin_loan_pay, name='admin_loan_pay'),
     path('loan/<int:loan_id>/pay-online/', views.loan_pay_online, name='loan_pay_online'),
     path('loan/payment/online-success/', views.loan_payment_online_success, name='loan_payment_online_success'),
     path('member/loan-payments/', views.loan_payment_history, name='loan_payment_history'),
@@ -59,4 +60,11 @@ urlpatterns = [
     path('staff/loan-application/<int:pk>/approve/', views.approve_loan_application, name='approve_loan_application'),
     path('staff/loan-application/<int:pk>/reject/', views.reject_loan_application, name='reject_loan_application'),
     path('staff/loan-settings/', views.admin_loan_settings, name='admin_loan_settings'),
+
+    # Notices
+    path('notices/', views.notice_list, name='notice_list'),
+    path('notices/create/', views.notice_create, name='notice_create'),
+    path('notices/<int:pk>/edit/', views.notice_edit, name='notice_edit'),
+    path('notices/<int:pk>/delete/', views.notice_delete, name='notice_delete'),
+    path('member/notices/', views.member_notices, name='member_notices'),
 ]

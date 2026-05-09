@@ -21,8 +21,8 @@ from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework import status
 
-from .models import Member, Pedi, MemberPedi, Payment, Loan, LoanPayment, Transaction, LoanTransaction, LoanApplication, LoanApplicationSettings
-from .forms import MemberForm, PediForm, LoanForm, PasswordResetRequestForm, SetPasswordForm, PasswordChangeForm
+from .models import Member, Pedi, MemberPedi, Payment, Loan, LoanPayment, Transaction, LoanTransaction, LoanApplication, LoanApplicationSettings, Notice
+from .forms import MemberForm, PediForm, LoanForm, PasswordResetRequestForm, SetPasswordForm, PasswordChangeForm, NoticeForm
 from .decorators import admin_required, member_required
 from .authentication import generate_jwt_token, decode_jwt_token
 from pedi_loan_system.settings import RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET
@@ -425,6 +425,35 @@ def loan_edit(request, pk):
     else:
         form = LoanForm(instance=loan)
     return render(request, 'loan_form.html', {'form': form, 'title': 'Edit Loan'})
+
+@login_required
+@admin_required
+def admin_loan_pay(request, loan_id):
+    loan = get_object_or_404(Loan, pk=loan_id)
+    if loan.status != 'Active':
+        messages.warning(request, 'This loan is not active.')
+        return redirect('loan_list')
+
+    if request.method == 'POST':
+        amount = Decimal(request.POST.get('amount', 0))
+        if amount <= 0:
+            messages.error(request, 'Please enter a valid amount.')
+            return redirect('admin_loan_pay', loan_id=loan.id)
+        if amount > loan.remaining_due:
+            messages.error(request, f'Amount cannot exceed remaining due ({loan.remaining_due}).')
+            return redirect('admin_loan_pay', loan_id=loan.id)
+
+        # Create LoanPayment record
+        LoanPayment.objects.create(
+            loan=loan,
+            amount=amount,
+            payment_method='Cash',
+            transaction_id=f'ADMIN-{timezone.now().strftime("%Y%m%d%H%M%S")}'
+        )
+        messages.success(request, f'Payment of ₹{amount} recorded successfully for {loan.member.user.get_full_name()}.')
+        return redirect('loan_list')
+
+    return render(request, 'admin_loan_pay.html', {'loan': loan})
 
 # ---------------------- Member Views for Loans & Payments ----------------------
 @login_required
@@ -871,3 +900,55 @@ def admin_loan_settings(request):
 
     context = {'settings': settings}
     return render(request, 'admin_loan_settings.html', context)
+
+# ---------------------- Notice Management ----------------------
+@login_required
+@admin_required
+def notice_list(request):
+    notices = Notice.objects.all().order_by('-created_at')
+    return render(request, 'notice_list.html', {'notices': notices})
+
+@login_required
+@admin_required
+def notice_create(request):
+    if request.method == 'POST':
+        form = NoticeForm(request.POST)
+        if form.is_valid():
+            notice = form.save(commit=False)
+            notice.author = request.user
+            notice.save()
+            messages.success(request, 'Notice created successfully')
+            return redirect('notice_list')
+    else:
+        form = NoticeForm()
+    return render(request, 'notice_form.html', {'form': form, 'title': 'Create Notice'})
+
+@login_required
+@admin_required
+def notice_edit(request, pk):
+    notice = get_object_or_404(Notice, pk=pk)
+    if request.method == 'POST':
+        form = NoticeForm(request.POST, instance=notice)
+        if form.is_valid():
+            form.save()
+            messages.success(request, 'Notice updated successfully')
+            return redirect('notice_list')
+    else:
+        form = NoticeForm(instance=notice)
+    return render(request, 'notice_form.html', {'form': form, 'title': 'Edit Notice'})
+
+@login_required
+@admin_required
+def notice_delete(request, pk):
+    notice = get_object_or_404(Notice, pk=pk)
+    if request.method == 'POST':
+        notice.delete()
+        messages.success(request, 'Notice deleted successfully')
+        return redirect('notice_list')
+    return render(request, 'confirm_delete.html', {'object': notice})
+
+@login_required
+@member_required
+def member_notices(request):
+    notices = Notice.objects.filter(is_active=True).order_by('-created_at')
+    return render(request, 'member_notices.html', {'notices': notices})

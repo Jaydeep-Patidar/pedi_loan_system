@@ -72,7 +72,7 @@
                                 {% for m in recent_members %}
                                 <tr>
                                     <td>{{ m.user.get_full_name }}</td>
-                                    <td>{{ m.email }}</td>
+                                    <td>{{ m.user.email }}</td>
                                     <td>{{ m.phone }}</td>
                                     <td>{{ m.joined_date|date:"d-m-Y" }}</td>
                                 </tr>

@@ -1,7 +1,7 @@
 from django import forms
 from django.contrib.auth.models import User
 from django.core.exceptions import ValidationError
-from .models import Member, Pedi, Loan
+from .models import Member, Pedi, Loan, Notice
 
 class MemberForm(forms.ModelForm):
     username = forms.CharField(max_length=150)
@@ -27,6 +27,19 @@ class MemberForm(forms.ModelForm):
         else:
             self.fields['password'].required = True
             self.fields['confirm_password'].required = True
+
+    def clean_password(self):
+        password = self.cleaned_data.get('password')
+        if password:
+            if len(password) < 8:
+                raise ValidationError('Password must be at least 8 characters long.')
+            if not any(char.isdigit() for char in password):
+                raise ValidationError('Password must contain at least one digit.')
+            if not any(char.isupper() for char in password):
+                raise ValidationError('Password must contain at least one uppercase letter.')
+            if not any(char.islower() for char in password):
+                raise ValidationError('Password must contain at least one lowercase letter.')
+        return password
 
     def clean(self):
         cleaned_data = super().clean()
@@ -65,12 +78,33 @@ class MemberForm(forms.ModelForm):
                 member.save()
             return member
 
+class NoticeForm(forms.ModelForm):
+    class Meta:
+        model = Notice
+        fields = ['title', 'content', 'is_active']
+        widgets = {
+            'content': forms.Textarea(attrs={'rows': 5}),
+        }
+
 class PasswordResetRequestForm(forms.Form):
     email = forms.EmailField(label='Email')
 
 class SetPasswordForm(forms.Form):
     new_password1 = forms.CharField(label='New password', widget=forms.PasswordInput)
     new_password2 = forms.CharField(label='Confirm new password', widget=forms.PasswordInput)
+
+    def clean_new_password1(self):
+        password = self.cleaned_data.get('new_password1')
+        if password:
+            if len(password) < 8:
+                raise ValidationError('Password must be at least 8 characters long.')
+            if not any(char.isdigit() for char in password):
+                raise ValidationError('Password must contain at least one digit.')
+            if not any(char.isupper() for char in password):
+                raise ValidationError('Password must contain at least one uppercase letter.')
+            if not any(char.islower() for char in password):
+                raise ValidationError('Password must contain at least one lowercase letter.')
+        return password
 
     def clean(self):
         cleaned_data = super().clean()

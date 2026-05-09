@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import Member, Pedi, MemberPedi, Payment, Loan, LoanPayment, Transaction, LoanTransaction, LoanApplicationSettings, LoanApplication
+from .models import Member, Pedi, MemberPedi, Payment, Loan, LoanPayment, Transaction, LoanTransaction, LoanApplicationSettings, LoanApplication, Notice
 
 @admin.register(Member)
 class MemberAdmin(admin.ModelAdmin):
@@ -49,8 +49,12 @@ class LoanApplicationSettingsAdmin(admin.ModelAdmin):
 @admin.register(LoanApplication)
 class LoanApplicationAdmin(admin.ModelAdmin):
     list_display = ['member', 'requested_amount', 'status', 'applied_date']
-    list_filter = ['status']
-    actions = ['approve_selected', 'reject_selected']
+
+@admin.register(Notice)
+class NoticeAdmin(admin.ModelAdmin):
+    list_display = ['title', 'author', 'created_at', 'is_active']
+    list_filter = ['is_active', 'created_at']
+    search_fields = ['title', 'content']
 
     def approve_selected(self, request, queryset):
         # Bulk approval would need extra logic; we'll rely on custom view

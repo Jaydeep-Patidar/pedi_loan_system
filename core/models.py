@@ -129,17 +129,6 @@ class LoanTransaction(models.Model):
     def __str__(self):
         return f"Transaction {self.razorpay_order_id} - {self.status}"
 
-class LoanPayment(models.Model):
-    loan = models.ForeignKey(Loan, on_delete=models.CASCADE, related_name='payments')
-    amount = models.DecimalField(max_digits=10, decimal_places=2)
-    payment_date = models.DateTimeField(auto_now_add=True)
-    transaction_id = models.CharField(max_length=100, blank=True)
-    payment_method = models.CharField(max_length=20, choices=[('Online', 'Online'), ('Cash', 'Cash')], default='Online')
-    def save(self, *args, **kwargs):
-        super().save(*args, **kwargs)
-        self.loan.paid_amount += self.amount
-        self.loan.save()
-
 class Transaction(models.Model):
     member = models.ForeignKey(Member, on_delete=models.CASCADE)
     payment = models.ForeignKey(Payment, on_delete=models.SET_NULL, null=True, blank=True)
@@ -181,3 +170,14 @@ class LoanApplication(models.Model):
 
     def __str__(self):
         return f"{self.member.user.username} - ₹{self.requested_amount} - {self.status}"
+
+class Notice(models.Model):
+    title = models.CharField(max_length=200)
+    content = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    is_active = models.BooleanField(default=True)
+    author = models.ForeignKey(User, on_delete=models.CASCADE)
+
+    def __str__(self):
+        return self.title

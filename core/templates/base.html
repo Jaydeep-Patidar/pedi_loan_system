@@ -50,6 +50,7 @@
 <a class="nav-link" href="{% url 'admin_loan_applications' %}"><i class="fas fa-file-alt"></i> Loan Applications</a>
 <a class="nav-link" href="{% url 'admin_loan_payments' %}"><i class="fas fa-history"></i> Loan Payments</a>
 <a class="nav-link" href="{% url 'reports' %}"><i class="fas fa-file-alt"></i> Reports</a>
+<a class="nav-link" href="{% url 'notice_list' %}"><i class="fas fa-bullhorn"></i> Notices</a>
 <a class="nav-link" href="{% url 'password_change' %}"><i class="fas fa-key"></i> Change Password</a>
                     {% else %}
 <a class="nav-link" href="{% url 'member_dashboard' %}"><i class="fas fa-tachometer-alt"></i> Dashboard</a>
@@ -58,6 +59,7 @@
 <a class="nav-link" href="{% url 'apply_loan' %}"><i class="fas fa-hand-holding-usd"></i> Apply Loan</a>
 <a class="nav-link" href="{% url 'loan_payment_history' %}"><i class="fas fa-history"></i> Loan Payment History</a>   <!-- new line -->
 <a class="nav-link" href="{% url 'payment_history' %}"><i class="fas fa-history"></i> Payment History</a>
+<a class="nav-link" href="{% url 'member_notices' %}"><i class="fas fa-bullhorn"></i> Notices</a>
 <a class="nav-link" href="{% url 'password_change' %}"><i class="fas fa-key"></i> Change Password</a>
 {% endif %}
                 </div>
