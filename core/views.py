@@ -12,6 +12,7 @@ from django.utils.encoding import force_bytes, force_str
 from django.utils.http import urlsafe_base64_encode, urlsafe_base64_decode
 import razorpay
 import json
+import random
 from datetime import date
 from decimal import Decimal
 from django.urls import reverse
@@ -192,8 +193,25 @@ def admin_dashboard(request):
         amount = Payment.objects.filter(year=current_year, month=month, status='Paid').aggregate(total=Sum('amount'))['total'] or 0
         monthly_summary.append({'month': month, 'amount': float(amount)})
 
-    recent_payments = Payment.objects.filter(status='Paid').select_related('member', 'pedi').order_by('-payment_date')[:10]
-    recent_members = Member.objects.filter(role='member', is_active=True).select_related('user').order_by('-joined_date')[:10]
+    recent_payments = Payment.objects.filter(status='Paid').select_related('member', 'pedi').order_by('-payment_date')[:5]
+    recent_members = Member.objects.filter(role='member', is_active=True).select_related('user').order_by('-joined_date')[:5]
+
+    # Get all members with their payment information
+    all_members_payments = []
+    members = Member.objects.filter(role='member', is_active=True).select_related('user')
+    for member in members:
+        total_paid = member.total_paid
+        active_loans = member.loans.filter(status='Active')
+        total_loan_due = active_loans.aggregate(total=Sum('remaining_due'))['total'] or 0
+        last_payment = member.payments.filter(status='Paid').order_by('-payment_date').first()
+        
+        all_members_payments.append({
+            'member': member,
+            'total_paid': total_paid,
+            'total_loan_due': total_loan_due,
+            'last_payment_date': last_payment.payment_date if last_payment else None,
+            'last_payment_amount': last_payment.amount if last_payment else 0,
+        })
 
     context = {
         'total_members': total_members,
@@ -203,6 +221,7 @@ def admin_dashboard(request):
         'monthly_summary_json': json.dumps(monthly_summary),
         'recent_payments': recent_payments,
         'recent_members': recent_members,
+        'all_members_payments': all_members_payments,
         'current_year': current_year,
     }
     return render(request, 'admin_dashboard.html', context)
@@ -346,12 +365,20 @@ def monthly_payments(request, pedi_id=None):
     selected_pedi = None
     payments = []
 
+    # Accept pedi_id from either URL path or query parameters
+    query_pedi_id = request.GET.get('pedi_id')
+    if query_pedi_id and not pedi_id:
+        try:
+            pedi_id = int(query_pedi_id)
+        except (TypeError, ValueError):
+            pedi_id = None
+
+    current_month = int(request.GET.get('month', timezone.now().month))
+    current_year = int(request.GET.get('year', timezone.now().year))
+
     if pedi_id:
         selected_pedi = get_object_or_404(Pedi, pk=pedi_id)
         members_in_pedi = MemberPedi.objects.filter(pedi=selected_pedi, status='Active').select_related('member')
-
-        current_month = int(request.GET.get('month', timezone.now().month))
-        current_year = int(request.GET.get('year', timezone.now().year))
 
         for mp in members_in_pedi:
             payment, created = Payment.objects.get_or_create(
@@ -370,11 +397,15 @@ def monthly_payments(request, pedi_id=None):
 
         if request.method == 'POST':
             for item in payments:
-                if request.POST.get(f'payment_{item["payment"].id}'):
+                payment_id = item['payment'].id
+                if request.POST.get(f'payment_{payment_id}'):
                     payment = item['payment']
                     payment.status = 'Paid'
                     payment.payment_date = timezone.now()
                     payment.payment_method = 'Cash'
+                    if not payment.transaction_id:
+                        random_suffix = random.randint(1000, 9999)
+                        payment.transaction_id = f'CASH-{timezone.now().strftime("%Y%m%d%H%M%S")}-{random_suffix}'
                     payment.save()
             messages.success(request, 'Payments updated successfully')
             return redirect('monthly_payments', pedi_id=selected_pedi.id)
@@ -383,8 +414,8 @@ def monthly_payments(request, pedi_id=None):
         'pedis': pedis,
         'selected_pedi': selected_pedi,
         'payments': payments,
-        'current_month': timezone.now().month,
-        'current_year': timezone.now().year,
+        'current_month': current_month,
+        'current_year': current_year,
         'months': range(1, 13),
     }
     return render(request, 'monthly_payments.html', context)
@@ -444,11 +475,12 @@ def admin_loan_pay(request, loan_id):
             return redirect('admin_loan_pay', loan_id=loan.id)
 
         # Create LoanPayment record
+        random_suffix = random.randint(1000, 9999)
         LoanPayment.objects.create(
             loan=loan,
             amount=amount,
             payment_method='Cash',
-            transaction_id=f'ADMIN-{timezone.now().strftime("%Y%m%d%H%M%S")}'
+            transaction_id=f'CASH-{timezone.now().strftime("%Y%m%d%H%M%S")}-{random_suffix}'
         )
         messages.success(request, f'Payment of ₹{amount} recorded successfully for {loan.member.user.get_full_name()}.')
         return redirect('loan_list')
