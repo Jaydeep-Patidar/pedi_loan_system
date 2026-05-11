@@ -1,6 +1,8 @@
 from django.db import models
 from django.contrib.auth.models import User
 from django.utils import timezone
+from datetime import timedelta
+from decimal import Decimal
 
 class Member(models.Model):
     ROLE_CHOICES = (
@@ -34,6 +36,14 @@ class Pedi(models.Model):
     end_date = models.DateField(blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
     is_active = models.BooleanField(default=True)
+    penalty_enabled = models.BooleanField(default=False)
+    grace_days = models.PositiveIntegerField(default=0)
+    enable_late_fee_per_day = models.BooleanField(default=False)
+    late_fee_per_day = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    enable_fixed_penalty = models.BooleanField(default=False)
+    fixed_penalty_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    enable_percentage_penalty = models.BooleanField(default=False)
+    percentage_penalty_rate = models.DecimalField(max_digits=5, decimal_places=2, default=0)
 
     def save(self, *args, **kwargs):
         if not self.end_date:
@@ -68,9 +78,50 @@ class Payment(models.Model):
     transaction_id = models.CharField(max_length=100, blank=True, null=True)
     razorpay_order_id = models.CharField(max_length=100, blank=True, null=True)
     razorpay_payment_id = models.CharField(max_length=100, blank=True, null=True)
+    penalty_enabled = models.BooleanField(default=False)
+    grace_days = models.PositiveIntegerField(default=0)
+    enable_late_fee_per_day = models.BooleanField(default=False)
+    late_fee_per_day = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    enable_fixed_penalty = models.BooleanField(default=False)
+    fixed_penalty_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    enable_percentage_penalty = models.BooleanField(default=False)
+    percentage_penalty_rate = models.DecimalField(max_digits=5, decimal_places=2, default=0)
 
     class Meta:
         unique_together = ('member', 'pedi', 'month', 'year')
+
+    def get_due_date(self):
+        """Calculate the payment due date based on month and year."""
+        from datetime import datetime
+        from dateutil.relativedelta import relativedelta
+        return datetime(self.year, self.month, 1).date() + relativedelta(months=1) - timedelta(days=1)
+
+    def overdue_days(self):
+        """Return the number of days overdue if payment is pending and past due."""
+        if self.status == 'Paid' or not self.penalty_enabled:
+            return 0
+        today = timezone.now().date()
+        due_date = self.get_due_date()
+        threshold = due_date + timedelta(days=self.grace_days)
+        if today <= threshold:
+            return 0
+        return (today - threshold).days
+
+    def calculate_penalty(self):
+        """Calculate penalty based on overdue days and penalty settings."""
+        if self.status == 'Paid' or not self.penalty_enabled:
+            return Decimal('0.00')
+        days = self.overdue_days()
+        if days <= 0:
+            return Decimal('0.00')
+        penalty = Decimal('0.00')
+        if self.enable_late_fee_per_day:
+            penalty += Decimal(days) * self.late_fee_per_day
+        if self.enable_fixed_penalty:
+            penalty += self.fixed_penalty_amount
+        if self.enable_percentage_penalty:
+            penalty += (self.amount * self.percentage_penalty_rate / Decimal('100'))
+        return penalty.quantize(Decimal('0.01'))
 
     def __str__(self):
         return f"{self.member.user.username} - {self.pedi.name} - {self.month}/{self.year}"
@@ -84,6 +135,14 @@ class Loan(models.Model):
     remaining_due = models.DecimalField(max_digits=12, decimal_places=2, blank=True)
     issued_date = models.DateField(auto_now_add=True)
     due_date = models.DateField()
+    penalty_enabled = models.BooleanField(default=False)
+    grace_days = models.PositiveIntegerField(default=0)
+    enable_late_fee_per_day = models.BooleanField(default=False)
+    late_fee_per_day = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    enable_fixed_penalty = models.BooleanField(default=False)
+    fixed_penalty_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    enable_percentage_penalty = models.BooleanField(default=False)
+    percentage_penalty_rate = models.DecimalField(max_digits=5, decimal_places=2, default=0)
     status = models.CharField(max_length=20, choices=[('Active', 'Active'), ('Closed', 'Closed')], default='Active')
 
     def save(self, *args, **kwargs):
@@ -93,6 +152,38 @@ class Loan(models.Model):
         if self.remaining_due <= 0:
             self.status = 'Closed'
         super().save(*args, **kwargs)
+        if self.status == 'Closed':
+            try:
+                application = self.application
+            except LoanApplication.DoesNotExist:
+                application = None
+            if application and application.status == 'Approved':
+                application.status = 'Closed'
+                application.save()
+
+    def overdue_days(self):
+        if not self.penalty_enabled:
+            return 0
+        today = timezone.now().date()
+        threshold = self.due_date + timedelta(days=self.grace_days)
+        if today <= threshold:
+            return 0
+        return (today - threshold).days
+
+    def calculate_penalty(self):
+        if not self.penalty_enabled:
+            return Decimal('0.00')
+        days = self.overdue_days()
+        if days <= 0:
+            return Decimal('0.00')
+        penalty = Decimal('0.00')
+        if self.enable_late_fee_per_day:
+            penalty += Decimal(days) * self.late_fee_per_day
+        if self.enable_fixed_penalty:
+            penalty += self.fixed_penalty_amount
+        if self.enable_percentage_penalty:
+            penalty += (self.amount * self.percentage_penalty_rate / Decimal('100'))
+        return penalty.quantize(Decimal('0.01'))
 
     def __str__(self):
         return f"Loan to {self.member.user.username} - ₹{self.amount}"
@@ -145,6 +236,14 @@ class LoanApplicationSettings(models.Model):
     end_date = models.DateField()
     default_interest_rate = models.DecimalField(max_digits=5, decimal_places=2, default=10.0)
     default_loan_duration_months = models.PositiveIntegerField(default=12)
+    penalty_enabled = models.BooleanField(default=False)
+    grace_days = models.PositiveIntegerField(default=0)
+    enable_late_fee_per_day = models.BooleanField(default=False)
+    late_fee_per_day = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    enable_fixed_penalty = models.BooleanField(default=False)
+    fixed_penalty_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    enable_percentage_penalty = models.BooleanField(default=False)
+    percentage_penalty_rate = models.DecimalField(max_digits=5, decimal_places=2, default=0)
 
     class Meta:
         verbose_name_plural = "Loan Application Settings"
@@ -156,9 +255,11 @@ class LoanApplication(models.Model):
     STATUS_CHOICES = (
         ('Pending', 'Pending'),
         ('Approved', 'Approved'),
+        ('Closed', 'Closed'),
         ('Rejected', 'Rejected'),
     )
     member = models.ForeignKey(Member, on_delete=models.CASCADE, related_name='loan_applications')
+    loan = models.OneToOneField('Loan', on_delete=models.SET_NULL, null=True, blank=True, related_name='application')
     requested_amount = models.DecimalField(max_digits=10, decimal_places=2)
     purpose = models.TextField(blank=True)
     status = models.CharField(max_length=10, choices=STATUS_CHOICES, default='Pending')

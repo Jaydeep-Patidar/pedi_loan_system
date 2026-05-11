@@ -11,6 +11,15 @@ class MemberAdmin(admin.ModelAdmin):
 class PediAdmin(admin.ModelAdmin):
     list_display = ['name', 'monthly_amount', 'duration_months', 'start_date', 'end_date', 'is_active']
     list_filter = ['is_active']
+    fieldsets = (
+        ('Basic Info', {'fields': ('name', 'duration_months', 'monthly_amount', 'start_date', 'end_date', 'is_active')}),
+        ('Penalty Settings', {'fields': (
+            'penalty_enabled', 'grace_days',
+            'enable_late_fee_per_day', 'late_fee_per_day',
+            'enable_fixed_penalty', 'fixed_penalty_amount',
+            'enable_percentage_penalty', 'percentage_penalty_rate'
+        ), 'classes': ('collapse',)}),
+    )
 
 @admin.register(MemberPedi)
 class MemberPediAdmin(admin.ModelAdmin):
@@ -20,6 +29,16 @@ class MemberPediAdmin(admin.ModelAdmin):
 class PaymentAdmin(admin.ModelAdmin):
     list_display = ['member', 'pedi', 'month', 'year', 'amount', 'status', 'payment_date']
     list_filter = ['status', 'payment_method', 'pedi']
+    fieldsets = (
+        ('Payment Info', {'fields': ('member', 'pedi', 'month', 'year', 'amount', 'status', 'payment_date', 'payment_method')}),
+        ('Transaction Details', {'fields': ('transaction_id', 'razorpay_order_id', 'razorpay_payment_id')}),
+        ('Penalty Settings', {'fields': (
+            'penalty_enabled', 'grace_days',
+            'enable_late_fee_per_day', 'late_fee_per_day',
+            'enable_fixed_penalty', 'fixed_penalty_amount',
+            'enable_percentage_penalty', 'percentage_penalty_rate'
+        ), 'classes': ('collapse',)}),
+    )
 
 @admin.register(Loan)
 class LoanAdmin(admin.ModelAdmin):
@@ -44,7 +63,13 @@ class TransactionAdmin(admin.ModelAdmin):
 
 @admin.register(LoanApplicationSettings)
 class LoanApplicationSettingsAdmin(admin.ModelAdmin):
-    fields = ['start_date', 'end_date', 'default_interest_rate', 'default_loan_duration_months']
+    fields = [
+        'start_date', 'end_date', 'default_interest_rate', 'default_loan_duration_months',
+        'penalty_enabled', 'grace_days',
+        'enable_late_fee_per_day', 'late_fee_per_day',
+        'enable_fixed_penalty', 'fixed_penalty_amount',
+        'enable_percentage_penalty', 'percentage_penalty_rate'
+    ]
 
 @admin.register(LoanApplication)
 class LoanApplicationAdmin(admin.ModelAdmin):

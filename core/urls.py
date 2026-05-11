@@ -25,9 +25,11 @@ urlpatterns = [
     
     # Pedi management
     path('pedis/', views.pedi_list, name='pedi_list'),
+    path('pedis/payment-history/', views.pedi_payment_history_menu, name='pedi_payment_history_menu'),
     path('pedis/create/', views.pedi_create, name='pedi_create'),
     path('pedis/<int:pk>/edit/', views.pedi_edit, name='pedi_edit'),
     path('pedis/<int:pedi_id>/assign/', views.assign_members, name='assign_members'),
+    path('pedis/<int:pedi_id>/payment-history/', views.pedi_payment_history, name='pedi_payment_history'),
     
     # Monthly payments
     path('payments/monthly/<int:pedi_id>/', views.monthly_payments, name='monthly_payments'),

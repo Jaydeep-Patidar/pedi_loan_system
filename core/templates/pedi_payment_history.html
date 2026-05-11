@@ -1,0 +1,42 @@
+{% extends 'base.html' %}
+{% load custom_filters %}
+{% block content %}
+<div class="card">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <h4>{{ selected_pedi.name }} Payment History</h4>
+        <a href="{% url 'pedi_payment_history_menu' %}" class="btn btn-secondary btn-sm">Back to Pedi Payment History</a>
+    </div>
+    <div class="card-body">
+        <div class="table-responsive">
+            <table class="table table-bordered table-striped">
+                <thead>
+                    <tr>
+                        <th>Member</th>
+                        <th>Month/Year</th>
+                        <th>Amount</th>
+                        <th>Status</th>
+                        <th>Payment Date</th>
+                        <th>Method</th>
+                        <th>Transaction ID</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for payment in payments %}
+                    <tr>
+                        <td>{{ payment.member.user.get_full_name }}</td>
+                        <td>{{ payment.month }}/{{ payment.year }}</td>
+                        <td>{{ payment.amount|currency }}</td>
+                        <td>{% if payment.status == 'Paid' %}<span class="badge bg-success">Paid</span>{% else %}<span class="badge bg-danger">Pending</span>{% endif %}</td>
+                        <td>{% if payment.payment_date %}{{ payment.payment_date|date:"d-m-Y H:i" }}{% else %}-{% endif %}</td>
+                        <td>{{ payment.payment_method }}</td>
+                        <td>{{ payment.transaction_id|default:"-" }}</td>
+                    </tr>
+                    {% empty %}
+                    <tr><td colspan="7" class="text-center">No payment history for this Pedi.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}

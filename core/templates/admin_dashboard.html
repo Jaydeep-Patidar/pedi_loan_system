@@ -11,10 +11,29 @@
             <div class="card text-white bg-success"><div class="card-body"><h5>Total Collection</h5><h2>{{ total_collection|currency }}</h2></div></div>
         </div>
         <div class="col-md-3 mb-3">
+            <div class="card text-white bg-info"><div class="card-body"><h5>Total Loan Collection</h5><h2>{{ total_loan_collection|currency }}</h2></div></div>
+        </div>
+        <div class="col-md-3 mb-3">
+            <div class="card text-white bg-secondary"><div class="card-body"><h5>Grand Total Collection</h5><h2>{{ grand_total_collection|currency }}</h2></div></div>
+        </div>
+    </div>
+    <div class="row">
+        <div class="col-md-3 mb-3">
             <div class="card text-white bg-warning"><div class="card-body"><h5>Loans Given</h5><h2>{{ total_loans|currency }}</h2></div></div>
         </div>
         <div class="col-md-3 mb-3">
             <div class="card text-white bg-danger"><div class="card-body"><h5>Pending Dues</h5><h2>{{ pending_dues|currency }}</h2></div></div>
+        </div>
+        <div class="col-md-3 mb-3">
+            <div class="card text-white bg-success"><div class="card-body"><h5>Total Loan Profit</h5><h2>{{ total_loan_profit|currency }}</h2></div></div>
+        </div>
+        <div class="col-md-3 mb-3">
+            <div class="card text-white bg-dark"><div class="card-body"><h5>Total Loan Fine</h5><h2>{{ total_loan_fine|currency }}</h2></div></div>
+        </div>
+    </div>
+    <div class="row">
+        <div class="col-md-3 mb-3">
+            <div class="card text-white bg-danger"><div class="card-body"><h5>Total Pedi Fine</h5><h2>{{ total_pedi_fine|currency }}</h2></div></div>
         </div>
     </div>
 

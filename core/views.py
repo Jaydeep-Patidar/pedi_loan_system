@@ -4,7 +4,7 @@ from django.contrib.auth.decorators import login_required
 from django.contrib.auth.tokens import default_token_generator
 from django.contrib import messages
 from django.core.mail import send_mail
-from django.db.models import Sum, Q
+from django.db.models import Sum, Q, Count
 from django.http import HttpResponse
 from django.middleware.csrf import get_token
 from django.utils import timezone
@@ -183,14 +183,30 @@ def dashboard(request):
 @admin_required
 def admin_dashboard(request):
     total_members = Member.objects.filter(role='member', is_active=True).count()
-    total_collection = Payment.objects.filter(status='Paid').aggregate(total=Sum('amount'))['total'] or 0
-    total_loans = Loan.objects.filter(status='Active').aggregate(total=Sum('amount'))['total'] or 0
-    pending_dues = Loan.objects.filter(status='Active').aggregate(total=Sum('remaining_due'))['total'] or 0
+    total_collection = Payment.objects.filter(status='Paid').aggregate(total=Sum('amount'))['total'] or Decimal('0.00')
+    total_loan_collection = LoanPayment.objects.aggregate(total=Sum('amount'))['total'] or Decimal('0.00')
+    total_loans = Loan.objects.filter(status='Active').aggregate(total=Sum('amount'))['total'] or Decimal('0.00')
+    pending_dues = Loan.objects.filter(status='Active').aggregate(total=Sum('remaining_due'))['total'] or Decimal('0.00')
+
+    total_loan_profit = Decimal('0.00')
+    total_loan_fine = Decimal('0.00')
+    for loan in Loan.objects.all():
+        profit = loan.paid_amount - loan.amount
+        if profit > 0:
+            total_loan_profit += profit
+    for loan in Loan.objects.filter(status='Active'):
+        total_loan_fine += loan.calculate_penalty()
+
+    total_pedi_fine = Decimal('0.00')
+    for payment in Payment.objects.filter(status='Pending'):
+        total_pedi_fine += payment.calculate_penalty()
+
+    grand_total_collection = total_collection + total_loan_collection
 
     current_year = timezone.now().year
     monthly_summary = []
     for month in range(1, 13):
-        amount = Payment.objects.filter(year=current_year, month=month, status='Paid').aggregate(total=Sum('amount'))['total'] or 0
+        amount = Payment.objects.filter(year=current_year, month=month, status='Paid').aggregate(total=Sum('amount'))['total'] or Decimal('0.00')
         monthly_summary.append({'month': month, 'amount': float(amount)})
 
     recent_payments = Payment.objects.filter(status='Paid').select_related('member', 'pedi').order_by('-payment_date')[:5]
@@ -216,8 +232,13 @@ def admin_dashboard(request):
     context = {
         'total_members': total_members,
         'total_collection': total_collection,
+        'total_loan_collection': total_loan_collection,
+        'grand_total_collection': grand_total_collection,
         'total_loans': total_loans,
         'pending_dues': pending_dues,
+        'total_loan_profit': total_loan_profit,
+        'total_loan_fine': total_loan_fine,
+        'total_pedi_fine': total_pedi_fine,
         'monthly_summary_json': json.dumps(monthly_summary),
         'recent_payments': recent_payments,
         'recent_members': recent_members,
@@ -300,7 +321,7 @@ def member_delete(request, pk):
 @login_required
 @admin_required
 def pedi_list(request):
-    pedis = Pedi.objects.all()
+    pedis = Pedi.objects.annotate(member_count=Count('member_pedis'))
     return render(request, 'pedi_list.html', {'pedis': pedis})
 
 @login_required
@@ -349,13 +370,40 @@ def assign_members(request, pedi_id):
                     pedi=pedi,
                     month=month,
                     year=pedi.start_date.year,
-                    defaults={'amount': pedi.monthly_amount, 'status': 'Pending'}
+                    defaults={
+                        'amount': pedi.monthly_amount,
+                        'status': 'Pending',
+                        'penalty_enabled': pedi.penalty_enabled,
+                        'grace_days': pedi.grace_days,
+                        'enable_late_fee_per_day': pedi.enable_late_fee_per_day,
+                        'late_fee_per_day': pedi.late_fee_per_day,
+                        'enable_fixed_penalty': pedi.enable_fixed_penalty,
+                        'fixed_penalty_amount': pedi.fixed_penalty_amount,
+                        'enable_percentage_penalty': pedi.enable_percentage_penalty,
+                        'percentage_penalty_rate': pedi.percentage_penalty_rate,
+                    }
                 )
         messages.success(request, 'Members assigned successfully')
         return redirect('pedi_list')
 
     context = {'pedi': pedi, 'members': members, 'assigned': assigned}
     return render(request, 'assign_members.html', context)
+
+@login_required
+@admin_required
+def pedi_payment_history_menu(request):
+    pedis = Pedi.objects.annotate(member_count=Count('member_pedis'))
+    return render(request, 'pedi_payment_history_menu.html', {'pedis': pedis})
+
+@login_required
+@admin_required
+def pedi_payment_history(request, pedi_id):
+    selected_pedi = get_object_or_404(Pedi, pk=pedi_id)
+    payments = Payment.objects.filter(pedi=selected_pedi, status='Paid').select_related('member').order_by('-year', '-month', '-payment_date')
+    return render(request, 'pedi_payment_history.html', {
+        'selected_pedi': selected_pedi,
+        'payments': payments,
+    })
 
 # ---------------------- Monthly Payments ----------------------
 @login_required
@@ -386,7 +434,18 @@ def monthly_payments(request, pedi_id=None):
                 pedi=selected_pedi,
                 month=current_month,
                 year=current_year,
-                defaults={'amount': selected_pedi.monthly_amount, 'status': 'Pending'}
+                defaults={
+                    'amount': selected_pedi.monthly_amount,
+                    'status': 'Pending',
+                    'penalty_enabled': selected_pedi.penalty_enabled,
+                    'grace_days': selected_pedi.grace_days,
+                    'enable_late_fee_per_day': selected_pedi.enable_late_fee_per_day,
+                    'late_fee_per_day': selected_pedi.late_fee_per_day,
+                    'enable_fixed_penalty': selected_pedi.enable_fixed_penalty,
+                    'fixed_penalty_amount': selected_pedi.fixed_penalty_amount,
+                    'enable_percentage_penalty': selected_pedi.enable_percentage_penalty,
+                    'percentage_penalty_rate': selected_pedi.percentage_penalty_rate,
+                }
             )
             payments.append({
                 'member': mp.member,
@@ -433,15 +492,30 @@ def loan_list(request):
 @login_required
 @admin_required
 def loan_create(request):
+    total_paid_pedi_collection = Payment.objects.filter(status='Paid').aggregate(total=Sum('amount'))['total'] or Decimal('0.00')
+    total_loan_collection = LoanPayment.objects.aggregate(total=Sum('amount'))['total'] or Decimal('0.00')
+    total_active_loan_due = Loan.objects.filter(status='Active').aggregate(total=Sum('remaining_due'))['total'] or Decimal('0.00')
+    available_amount = total_paid_pedi_collection + total_loan_collection - total_active_loan_due
+    if available_amount < 0:
+        available_amount = Decimal('0.00')
+
     if request.method == 'POST':
         form = LoanForm(request.POST)
         if form.is_valid():
-            form.save()
-            messages.success(request, 'Loan issued successfully')
-            return redirect('loan_list')
+            requested_amount = form.cleaned_data['amount']
+            if requested_amount > available_amount:
+                form.add_error('amount', 'Insufficient collection available to issue this loan. Available amount: ₹{:.2f}'.format(available_amount))
+            else:
+                form.save()
+                messages.success(request, 'Loan issued successfully')
+                return redirect('loan_list')
     else:
         form = LoanForm()
-    return render(request, 'loan_form.html', {'form': form, 'title': 'Issue Loan'})
+    return render(request, 'loan_form.html', {
+        'form': form,
+        'title': 'Issue Loan',
+        'available_amount': available_amount,
+    })
 
 @login_required
 @admin_required
@@ -860,15 +934,24 @@ def approve_loan_application(request, pk):
             from datetime import datetime
             due_date = datetime.strptime(due_date, '%Y-%m-%d').date()
 
-        # Create actual Loan
+        # Create actual Loan with penalty settings preserved from current loan settings
         loan = Loan.objects.create(
             member=application.member,
             amount=application.requested_amount,
             interest_rate=interest_rate,
             due_date=due_date,
+            penalty_enabled=settings.penalty_enabled,
+            grace_days=settings.grace_days,
+            enable_late_fee_per_day=settings.enable_late_fee_per_day,
+            late_fee_per_day=settings.late_fee_per_day,
+            enable_fixed_penalty=settings.enable_fixed_penalty,
+            fixed_penalty_amount=settings.fixed_penalty_amount,
+            enable_percentage_penalty=settings.enable_percentage_penalty,
+            percentage_penalty_rate=settings.percentage_penalty_rate,
             status='Active'
         )
-        # Update application
+        # Update application and link to the created loan
+        application.loan = loan
         application.status = 'Approved'
         application.approved_date = timezone.now()
         application.approved_interest_rate = interest_rate
@@ -924,6 +1007,14 @@ def admin_loan_settings(request):
             settings.end_date = datetime.strptime(end_date, '%Y-%m-%d').date()
             settings.default_interest_rate = Decimal(interest_rate)
             settings.default_loan_duration_months = int(duration)
+            settings.penalty_enabled = 'penalty_enabled' in request.POST
+            settings.grace_days = int(request.POST.get('grace_days', 0))
+            settings.enable_late_fee_per_day = 'enable_late_fee_per_day' in request.POST
+            settings.late_fee_per_day = Decimal(request.POST.get('late_fee_per_day') or 0)
+            settings.enable_fixed_penalty = 'enable_fixed_penalty' in request.POST
+            settings.fixed_penalty_amount = Decimal(request.POST.get('fixed_penalty_amount') or 0)
+            settings.enable_percentage_penalty = 'enable_percentage_penalty' in request.POST
+            settings.percentage_penalty_rate = Decimal(request.POST.get('percentage_penalty_rate') or 0)
             settings.save()
             messages.success(request, 'Loan application settings updated.')
         else:

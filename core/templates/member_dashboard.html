@@ -58,6 +58,8 @@
                                 <span class="badge bg-warning">Pending</span>
                             {% elif app.status == 'Approved' %}
                                 <span class="badge bg-success">Approved</span>
+                            {% elif app.status == 'Closed' %}
+                                <span class="badge bg-secondary">Closed</span>
                             {% elif app.status == 'Rejected' %}
                                 <span class="badge bg-danger">Rejected</span>
                             {% endif %}
@@ -65,7 +67,7 @@
                         <td>
                             {% if app.status == 'Rejected' %}
                                 <a href="{% url 'apply_loan' %}" class="btn btn-sm btn-primary">Apply Again</a>
-                            {% elif app.status == 'Approved' %}
+                            {% elif app.status == 'Approved' or app.status == 'Closed' %}
                                 <a href="{% url 'member_loans' %}" class="btn btn-sm btn-info">View Loan</a>
                             {% endif %}
                         </td>

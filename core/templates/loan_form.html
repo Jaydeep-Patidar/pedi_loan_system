@@ -7,6 +7,11 @@
                 <h4>{{ title }}</h4>
             </div>
             <div class="card-body">
+                {% if available_amount is not None %}
+                <div class="alert alert-info">
+                    Available collection for new loans: <strong>{{ available_amount|currency }}</strong>
+                </div>
+                {% endif %}
                 <form method="post">
                     {% csrf_token %}
                     {% for field in form %}

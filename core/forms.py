@@ -120,7 +120,13 @@ class PasswordChangeForm(SetPasswordForm):
 class PediForm(forms.ModelForm):
     class Meta:
         model = Pedi
-        fields = ['name', 'duration_months', 'monthly_amount', 'start_date', 'is_active']
+        fields = [
+            'name', 'duration_months', 'monthly_amount', 'start_date', 'is_active',
+            'penalty_enabled', 'grace_days',
+            'enable_late_fee_per_day', 'late_fee_per_day',
+            'enable_fixed_penalty', 'fixed_penalty_amount',
+            'enable_percentage_penalty', 'percentage_penalty_rate'
+        ]
         widgets = {
             'start_date': forms.DateInput(attrs={'type': 'date'}),
         }
