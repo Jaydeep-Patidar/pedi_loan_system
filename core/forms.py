@@ -131,10 +131,81 @@ class PediForm(forms.ModelForm):
             'start_date': forms.DateInput(attrs={'type': 'date'}),
         }
 
+    LOCKED_MESSAGE = "Financial settings cannot be modified after members or payments are created for this pedi."
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.financial_locked = False
+        # If editing existing pedi, check for memberships or payments
+        pedi = kwargs.get('instance')
+        if pedi and pedi.pk:
+            from .models import MemberPedi, Payment
+            has_members = MemberPedi.objects.filter(pedi=pedi).exists()
+            has_payments = Payment.objects.filter(pedi=pedi).exists()
+            if has_members or has_payments:
+                self.financial_locked = True
+                # Disable financial fields in the form (visual only)
+                financial_fields = [
+                    'monthly_amount', 'duration_months', 'start_date',
+                    'penalty_enabled', 'grace_days', 'enable_late_fee_per_day', 'late_fee_per_day',
+                    'enable_fixed_penalty', 'fixed_penalty_amount', 'enable_percentage_penalty', 'percentage_penalty_rate'
+                ]
+                for fname in financial_fields:
+                    if fname in self.fields:
+                        self.fields[fname].widget.attrs['disabled'] = 'disabled'
+
+    def clean(self):
+        cleaned_data = super().clean()
+        if self.instance and self.instance.pk and getattr(self, 'financial_locked', False):
+            # Ensure locked financial fields are not changed (backend enforcement)
+            locked_fields = [
+                'monthly_amount', 'duration_months', 'start_date',
+                'penalty_enabled', 'grace_days', 'enable_late_fee_per_day', 'late_fee_per_day',
+                'enable_fixed_penalty', 'fixed_penalty_amount', 'enable_percentage_penalty', 'percentage_penalty_rate'
+            ]
+            for field in locked_fields:
+                if field in cleaned_data:
+                    new_val = cleaned_data.get(field)
+                    old_val = getattr(self.instance, field)
+                    # For DecimalField and DateField comparisons, normalize
+                    if new_val != old_val:
+                        raise ValidationError(self.LOCKED_MESSAGE)
+        return cleaned_data
+
 class LoanForm(forms.ModelForm):
+    interest_rate = forms.DecimalField(
+        required=False,
+        max_digits=5,
+        decimal_places=2,
+        label='Interest Rate (%)',
+        help_text='Optional. Leave blank to use default loan application settings.',
+    )
+
     class Meta:
         model = Loan
-        fields = ['member', 'amount', 'interest_rate', 'due_date']
-        widgets = {
-            'due_date': forms.DateInput(attrs={'type': 'date'}),
-        }
+        fields = ['member', 'amount', 'interest_rate']
+
+    LOCKED_MESSAGE = "Loan financial details cannot be changed after payments are recorded."
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.financial_locked = False
+        loan = kwargs.get('instance')
+        if loan and loan.pk:
+            from .models import LoanPayment
+            if LoanPayment.objects.filter(loan=loan).exists():
+                self.financial_locked = True
+                for fname in ['amount', 'interest_rate']:
+                    if fname in self.fields:
+                        self.fields[fname].widget.attrs['disabled'] = 'disabled'
+
+    def clean(self):
+        cleaned_data = super().clean()
+        if self.instance and self.instance.pk and getattr(self, 'financial_locked', False):
+            for field in ['amount', 'interest_rate']:
+                if field in cleaned_data:
+                    new_val = cleaned_data.get(field)
+                    old_val = getattr(self.instance, field)
+                    if new_val != old_val:
+                        raise ValidationError(self.LOCKED_MESSAGE)
+        return cleaned_data

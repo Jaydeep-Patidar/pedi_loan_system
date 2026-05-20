@@ -6,12 +6,23 @@
         <h4>My Loans</h4>
     </div>
     <div class="card-body">
+        <form method="get" class="mb-3 d-flex gap-2 justify-content-between">
+            <input type="search" name="q" value="{{ search_term|default:'' }}" class="form-control form-control-sm w-50" placeholder="Search loans" />
+            <button type="submit" class="btn btn-primary btn-sm">Search</button>
+        </form>
         <div class="table-responsive">
             <table class="table table-bordered table-striped">
                 <thead>
                     <tr>
-                        <th>Loan Amount</th><th>Interest Rate</th><th>Total Payable</th>
-                        <th>Paid Amount</th><th>Remaining Due</th><th>Issue Date</th><th>Due Date</th><th>Status</th><th>Action</th>
+                        <th>Loan Amount</th>
+                        <th>Interest Rate</th>
+                        <th>Total Payable</th>
+                        <th>Paid Amount</th>
+                        <th>Remaining Due</th>
+                        <th>Issue Date</th>
+                        <th>Due Date</th>
+                        <th>Status</th>
+                        <th>Action</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -34,11 +45,12 @@
 </td>
                     </tr>
                     {% empty %}
-                    <tr><td colspan="8" class="text-center">No loans found.</td></tr>
+                    <tr><td colspan="9" class="text-center">No loans found.</td></tr>
                     {% endfor %}
                 </tbody>
             </table>
         </div>
+        {% include 'includes/pagination_controls.html' %}
     </div>
 </div>
 {% endblock %}

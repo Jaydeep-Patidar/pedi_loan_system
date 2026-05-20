@@ -8,6 +8,9 @@
                 <h4>Loan Application Settings</h4>
             </div>
             <div class="card-body">
+                <div class="mb-3 text-end">
+                    <a href="{% url 'admin_loan_settings_history' %}" class="btn btn-outline-secondary btn-sm">View Settings History</a>
+                </div>
                 <form method="post">
                     {% csrf_token %}
                     <div class="mb-3">

@@ -15,21 +15,71 @@ import json
 import random
 from datetime import date
 from decimal import Decimal
+from types import SimpleNamespace
 from django.urls import reverse
 
 from rest_framework.decorators import api_view, permission_classes, authentication_classes
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework import status
+from django.core.exceptions import ValidationError
 
 from .models import Member, Pedi, MemberPedi, Payment, Loan, LoanPayment, Transaction, LoanTransaction, LoanApplication, LoanApplicationSettings, Notice
 from .forms import MemberForm, PediForm, LoanForm, PasswordResetRequestForm, SetPasswordForm, PasswordChangeForm, NoticeForm
 from .decorators import admin_required, member_required
 from .authentication import generate_jwt_token, decode_jwt_token
+from .utils import apply_search, apply_status_filter, apply_sorting, paginate_queryset
 from pedi_loan_system.settings import RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET
 
 from datetime import timedelta
 from dateutil.relativedelta import relativedelta
+
+
+def _get_pedi_schedule_end(pedi, membership_end_date=None):
+    """Return an exclusive end date for payment generation."""
+    if pedi.end_date:
+        end_date = pedi.end_date
+    else:
+        end_date = pedi.start_date + relativedelta(months=pedi.duration_months)
+
+    if membership_end_date:
+        membership_end_exclusive = membership_end_date + timedelta(days=1)
+        return min(end_date, membership_end_exclusive)
+    return end_date
+
+
+def generate_member_payments(member, pedi, start_month, start_year, membership_end_date=None):
+    """Generate missing monthly payments from the member's joining month onward."""
+    start_date = date(start_year, start_month, 1)
+    generation_end = _get_pedi_schedule_end(pedi, membership_end_date)
+    if not generation_end or start_date >= generation_end:
+        return []
+
+    current_date = start_date
+    payments = []
+    while current_date < generation_end:
+        payment, created = Payment.objects.get_or_create(
+            member=member,
+            pedi=pedi,
+            month=current_date.month,
+            year=current_date.year,
+            defaults={
+                'amount': pedi.monthly_amount,
+                'status': 'Pending',
+                'penalty_enabled': pedi.penalty_enabled,
+                'grace_days': pedi.grace_days,
+                'enable_late_fee_per_day': pedi.enable_late_fee_per_day,
+                'late_fee_per_day': pedi.late_fee_per_day,
+                'enable_fixed_penalty': pedi.enable_fixed_penalty,
+                'fixed_penalty_amount': pedi.fixed_penalty_amount,
+                'enable_percentage_penalty': pedi.enable_percentage_penalty,
+                'percentage_penalty_rate': pedi.percentage_penalty_rate,
+            }
+        )
+        payments.append(payment)
+        current_date += relativedelta(months=1)
+
+    return payments
 
 
 # Initialize Razorpay client
@@ -183,7 +233,7 @@ def dashboard(request):
 @admin_required
 def admin_dashboard(request):
     total_members = Member.objects.filter(role='member', is_active=True).count()
-    total_collection = Payment.objects.filter(status='Paid').aggregate(total=Sum('amount'))['total'] or Decimal('0.00')
+    total_collection = Payment.objects.filter(status='Paid', is_cancelled=False).aggregate(total=Sum('amount'))['total'] or Decimal('0.00')
     total_loan_collection = LoanPayment.objects.aggregate(total=Sum('amount'))['total'] or Decimal('0.00')
     total_loans = Loan.objects.filter(status='Active').aggregate(total=Sum('amount'))['total'] or Decimal('0.00')
     pending_dues = Loan.objects.filter(status='Active').aggregate(total=Sum('remaining_due'))['total'] or Decimal('0.00')
@@ -198,7 +248,7 @@ def admin_dashboard(request):
         total_loan_fine += loan.calculate_penalty()
 
     total_pedi_fine = Decimal('0.00')
-    for payment in Payment.objects.filter(status='Pending'):
+    for payment in Payment.objects.filter(status='Pending', is_cancelled=False):
         total_pedi_fine += payment.calculate_penalty()
 
     grand_total_collection = total_collection + total_loan_collection
@@ -206,10 +256,10 @@ def admin_dashboard(request):
     current_year = timezone.now().year
     monthly_summary = []
     for month in range(1, 13):
-        amount = Payment.objects.filter(year=current_year, month=month, status='Paid').aggregate(total=Sum('amount'))['total'] or Decimal('0.00')
+        amount = Payment.objects.filter(year=current_year, month=month, status='Paid', is_cancelled=False).aggregate(total=Sum('amount'))['total'] or Decimal('0.00')
         monthly_summary.append({'month': month, 'amount': float(amount)})
 
-    recent_payments = Payment.objects.filter(status='Paid').select_related('member', 'pedi').order_by('-payment_date')[:5]
+    recent_payments = Payment.objects.filter(status='Paid', is_cancelled=False).select_related('member', 'pedi').order_by('-payment_date')[:5]
     recent_members = Member.objects.filter(role='member', is_active=True).select_related('user').order_by('-joined_date')[:5]
 
     # Get all members with their payment information
@@ -219,7 +269,7 @@ def admin_dashboard(request):
         total_paid = member.total_paid
         active_loans = member.loans.filter(status='Active')
         total_loan_due = active_loans.aggregate(total=Sum('remaining_due'))['total'] or 0
-        last_payment = member.payments.filter(status='Paid').order_by('-payment_date').first()
+        last_payment = member.payments.filter(status='Paid', is_cancelled=False).order_by('-payment_date').first()
         
         all_members_payments.append({
             'member': member,
@@ -254,7 +304,7 @@ def member_dashboard(request):
     total_paid = member.total_paid
     loans = member.loans.filter(status='Active')
     total_loan_due = loans.aggregate(total=Sum('remaining_due'))['total'] or 0
-    payments = member.payments.filter(status='Paid').order_by('-payment_date')[:10]
+    payments = member.payments.filter(status='Paid', is_cancelled=False).order_by('-payment_date')[:10]
 
     context = {
         'member': member,
@@ -269,16 +319,32 @@ def member_dashboard(request):
 @login_required
 @admin_required
 def member_list(request):
-    members = Member.objects.filter(role='member')
-    search = request.GET.get('search')
-    if search:
-        members = members.filter(
-            Q(user__first_name__icontains=search) |
-            Q(user__last_name__icontains=search) |
-            Q(user__username__icontains=search) |
-            Q(phone__icontains=search)
-        )
-    return render(request, 'member_list.html', {'members': members})
+    members = Member.objects.filter(role='member').select_related('user')
+    members, search_term = apply_search(request, members, [
+        'user__first_name', 'user__last_name', 'user__username', 'user__email', 'phone'
+    ])
+    status = request.GET.get('status', '')
+    if status == 'Active':
+        members = members.filter(is_active=True)
+    elif status == 'Inactive':
+        members = members.filter(is_active=False)
+
+    sort_map = {
+        'name': 'user__first_name',
+        'username': 'user__username',
+        'joined': 'joined_date',
+        'status': 'is_active',
+    }
+    members, sort_key, sort_dir = apply_sorting(request, members, sort_map, default_order='-joined_date')
+    page_obj = paginate_queryset(request, members, default_per_page=10)
+    return render(request, 'member_list.html', {
+        'members': page_obj,
+        'page_obj': page_obj,
+        'search_term': search_term,
+        'status': status,
+        'sort_key': sort_key,
+        'sort_dir': sort_dir,
+    })
 
 @login_required
 @admin_required
@@ -305,24 +371,75 @@ def member_edit(request, pk):
             return redirect('member_list')
     else:
         form = MemberForm(instance=member)
-    return render(request, 'member_form.html', {'form': form, 'title': 'Edit Member'})
+    return render(request, 'member_form.html', {'form': form, 'title': 'Edit Member', 'member_obj': member})
+
+
+@login_required
+@admin_required
+def member_activate(request, pk):
+    member = get_object_or_404(Member, pk=pk)
+    if request.method == 'POST':
+        member.is_active = True
+        member.user.is_active = True
+        member.user.save()
+        member.save()
+        messages.success(request, 'Member activated successfully')
+        return redirect('member_list')
+    return render(request, 'confirm_delete.html', {'object': member, 'title': 'Activate Member', 'button_label': 'Yes, Activate'})
 
 @login_required
 @admin_required
 def member_delete(request, pk):
     member = get_object_or_404(Member, pk=pk)
+    # Soft-deactivate member instead of hard delete
     if request.method == 'POST':
-        member.user.delete()
-        messages.success(request, 'Member deleted successfully')
+        # Check deactivation restrictions
+        has_active_loans = Loan.objects.filter(member=member, status='Active').exists()
+        has_pending_pedi_dues = Payment.objects.filter(member=member, status='Pending', is_cancelled=False).exists()
+        if has_active_loans or has_pending_pedi_dues:
+            messages.error(request, 'Member cannot be deactivated because active loans or pending pedi dues exist.')
+            return redirect('member_list')
+
+        member.is_active = False
+        member.user.is_active = False
+        member.user.save()
+        member.save()
+        messages.success(request, 'Member deactivated successfully')
         return redirect('member_list')
-    return render(request, 'confirm_delete.html', {'object': member})
+
+    return render(request, 'confirm_delete.html', {
+        'object': member,
+        'title': 'Deactivate Member',
+        'button_label': 'Yes, Deactivate'
+    })
 
 # ---------------------- Pedi Management ----------------------
 @login_required
 @admin_required
 def pedi_list(request):
     pedis = Pedi.objects.annotate(member_count=Count('member_pedis'))
-    return render(request, 'pedi_list.html', {'pedis': pedis})
+    pedis, search_term = apply_search(request, pedis, ['name'])
+    status = request.GET.get('status', '')
+    if status == 'Active':
+        pedis = pedis.filter(is_active=True)
+    elif status == 'Inactive':
+        pedis = pedis.filter(is_active=False)
+
+    sort_map = {
+        'name': 'name',
+        'start_date': 'start_date',
+        'member_count': '-member_count',
+    }
+    pedis, sort_key, sort_dir = apply_sorting(request, pedis, sort_map, default_order='-created_at')
+    page_obj = paginate_queryset(request, pedis, default_per_page=10)
+    return render(request, 'pedi_list.html', {
+        'pedis': page_obj,
+        'page_obj': page_obj,
+        'search_term': search_term,
+        'status': status,
+        'sort_key': sort_key,
+        'sort_dir': sort_dir,
+    })
 
 @login_required
 @admin_required
@@ -344,9 +461,13 @@ def pedi_edit(request, pk):
     if request.method == 'POST':
         form = PediForm(request.POST, instance=pedi)
         if form.is_valid():
-            form.save()
-            messages.success(request, 'Pedi updated successfully')
-            return redirect('pedi_list')
+            try:
+                form.save()
+                messages.success(request, 'Pedi updated successfully')
+                return redirect('pedi_list')
+            except ValidationError as e:
+                # Attach error to form non-field errors for display
+                form.add_error(None, e.message)
     else:
         form = PediForm(instance=pedi)
     return render(request, 'pedi_form.html', {'form': form, 'title': 'Edit Pedi'})
@@ -357,52 +478,192 @@ def assign_members(request, pedi_id):
     pedi = get_object_or_404(Pedi, pk=pedi_id)
     members = Member.objects.filter(role='member', is_active=True)
     assigned = MemberPedi.objects.filter(pedi=pedi).values_list('member_id', flat=True)
+    existing_memberships = {mp.member_id: mp for mp in MemberPedi.objects.filter(pedi=pedi)}
 
     if request.method == 'POST':
-        selected_members = request.POST.getlist('members')
-        MemberPedi.objects.filter(pedi=pedi).delete()
+        selected_members = set(map(int, request.POST.getlist('members')))
+
         for member_id in selected_members:
             member = Member.objects.get(pk=member_id)
-            MemberPedi.objects.create(member=member, pedi=pedi)
-            for month in range(1, pedi.duration_months + 1):
-                Payment.objects.get_or_create(
+            member_pedi = existing_memberships.get(member_id)
+            if not member_pedi:
+                member_pedi = MemberPedi.objects.create(
                     member=member,
                     pedi=pedi,
-                    month=month,
-                    year=pedi.start_date.year,
-                    defaults={
-                        'amount': pedi.monthly_amount,
-                        'status': 'Pending',
-                        'penalty_enabled': pedi.penalty_enabled,
-                        'grace_days': pedi.grace_days,
-                        'enable_late_fee_per_day': pedi.enable_late_fee_per_day,
-                        'late_fee_per_day': pedi.late_fee_per_day,
-                        'enable_fixed_penalty': pedi.enable_fixed_penalty,
-                        'fixed_penalty_amount': pedi.fixed_penalty_amount,
-                        'enable_percentage_penalty': pedi.enable_percentage_penalty,
-                        'percentage_penalty_rate': pedi.percentage_penalty_rate,
-                    }
+                    membership_start_date=timezone.now().date()
                 )
+            if member_pedi.status == 'Active':
+                generate_member_payments(
+                    member=member,
+                    pedi=pedi,
+                    start_month=member_pedi.membership_start_date.month,
+                    start_year=member_pedi.membership_start_date.year,
+                    membership_end_date=member_pedi.membership_end_date,
+                )
+
         messages.success(request, 'Members assigned successfully')
         return redirect('pedi_list')
 
-    context = {'pedi': pedi, 'members': members, 'assigned': assigned}
+    context = {'pedi': pedi, 'members': members, 'assigned': assigned, 'existing_memberships': existing_memberships}
     return render(request, 'assign_members.html', context)
+
+
+@login_required
+@admin_required
+def pedi_member_exit(request, pedi_id, member_id):
+    pedi = get_object_or_404(Pedi, pk=pedi_id)
+    member = get_object_or_404(Member, pk=member_id)
+    try:
+        membership = MemberPedi.objects.get(member=member, pedi=pedi)
+    except MemberPedi.DoesNotExist:
+        messages.error(request, 'Membership not found')
+        return redirect('pedi_list')
+
+    if request.method == 'POST':
+        exit_reason = request.POST.get('exit_reason', '')
+        exit_date_str = request.POST.get('exit_date')
+        if exit_date_str:
+            try:
+                exit_date = timezone.datetime.strptime(exit_date_str, '%Y-%m-%d').date()
+            except Exception:
+                exit_date = timezone.now().date()
+        else:
+            exit_date = timezone.now().date()
+
+        membership.status = 'Exited'
+        membership.exit_date = exit_date
+        membership.admin_exit_at = timezone.now()
+        membership.admin_exit_reason = exit_reason
+        if not membership.exit_reason:
+            membership.exit_reason = exit_reason
+        membership.save()
+
+        # Cancel future unpaid payments for this member+pedi
+        exit_year = exit_date.year
+        exit_month = exit_date.month
+        future_payments = Payment.objects.filter(member=member, pedi=pedi, status='Pending', is_cancelled=False)
+        for p in future_payments:
+            if p.year > exit_year or (p.year == exit_year and p.month > exit_month):
+                p.is_cancelled = True
+                p.save()
+
+        messages.success(request, 'Member exited from pedi and future payments cancelled')
+        return redirect('assign_members', pedi_id=pedi.id)
+
+    # GET: render admin approval form
+    return render(request, 'member_exit.html', {
+        'pedi': pedi,
+        'member': member,
+        'membership': membership,
+        'form_title': 'Exit Member from Pedi',
+        'submit_label': 'Exit Member and Cancel Future Payments',
+    })
+
+
+@login_required
+@admin_required
+def reject_member_exit_request(request, pedi_id, member_id):
+    pedi = get_object_or_404(Pedi, pk=pedi_id)
+    member = get_object_or_404(Member, pk=member_id)
+    try:
+        membership = MemberPedi.objects.get(member=member, pedi=pedi)
+    except MemberPedi.DoesNotExist:
+        messages.error(request, 'Membership not found')
+        return redirect('pedi_list')
+
+    if membership.status != 'Exit Requested':
+        messages.error(request, 'There is no exit request to reject for this member.')
+        return redirect('assign_members', pedi_id=pedi.id)
+
+    membership.status = 'Active'
+    membership.member_exit_requested_at = None
+    membership.member_exit_request_reason = ''
+    membership.save()
+
+    messages.success(request, 'Exit request rejected and membership restored.')
+    return redirect('assign_members', pedi_id=pedi.id)
+
+
+@login_required
+@member_required
+def member_pedi_exit_request(request, pedi_id):
+    member = request.user.member_profile
+    pedi = get_object_or_404(Pedi, pk=pedi_id)
+    try:
+        membership = MemberPedi.objects.get(member=member, pedi=pedi)
+    except MemberPedi.DoesNotExist:
+        messages.error(request, 'Membership not found')
+        return redirect('member_payments')
+
+    if membership.status == 'Exited':
+        messages.error(request, 'This pedi membership has already been exited.')
+        return redirect('member_payments')
+
+    if request.method == 'POST':
+        request_reason = request.POST.get('request_reason', '')
+        membership.status = 'Exit Requested'
+        membership.member_exit_requested_at = timezone.now()
+        membership.member_exit_request_reason = request_reason
+        membership.save()
+        messages.success(request, 'Exit request submitted. An administrator will review it.')
+        return redirect('member_payments')
+
+    return render(request, 'member_exit.html', {
+        'pedi': pedi,
+        'member': member,
+        'membership': membership,
+        'form_title': 'Request Exit from Pedi',
+        'submit_label': 'Request Exit',
+        'request_mode': True,
+    })
 
 @login_required
 @admin_required
 def pedi_payment_history_menu(request):
     pedis = Pedi.objects.annotate(member_count=Count('member_pedis'))
-    return render(request, 'pedi_payment_history_menu.html', {'pedis': pedis})
+    pedis, search_term = apply_search(request, pedis, ['name'], search_param='q')
+    status = request.GET.get('status', '')
+    if status == 'Active':
+        pedis = pedis.filter(is_active=True)
+    elif status == 'Inactive':
+        pedis = pedis.filter(is_active=False)
+    sort_map = {
+        'name': 'name',
+        'start_date': 'start_date',
+        'members': '-member_count',
+    }
+    pedis, sort_key, sort_dir = apply_sorting(request, pedis, sort_map, default_order='-created_at')
+    page_obj = paginate_queryset(request, pedis, default_per_page=10)
+    return render(request, 'pedi_payment_history_menu.html', {
+        'pedis': page_obj,
+        'page_obj': page_obj,
+        'search_term': search_term,
+        'status': status,
+        'sort_key': sort_key,
+        'sort_dir': sort_dir,
+    })
 
 @login_required
 @admin_required
 def pedi_payment_history(request, pedi_id):
     selected_pedi = get_object_or_404(Pedi, pk=pedi_id)
-    payments = Payment.objects.filter(pedi=selected_pedi, status='Paid').select_related('member').order_by('-year', '-month', '-payment_date')
+    payments = Payment.objects.filter(pedi=selected_pedi, is_cancelled=False).select_related('member').order_by('-year', '-month', '-payment_date')
+    payments, search_term = apply_search(request, payments, ['member__user__first_name', 'member__user__last_name', 'transaction_id'], search_param='q')
+    sort_map = {
+        'member': 'member__user__first_name',
+        'date': '-payment_date',
+        'amount': 'amount',
+        'status': 'status',
+    }
+    payments, sort_key, sort_dir = apply_sorting(request, payments, sort_map, default_order='-year')
+    page_obj = paginate_queryset(request, payments, default_per_page=10)
     return render(request, 'pedi_payment_history.html', {
         'selected_pedi': selected_pedi,
-        'payments': payments,
+        'payments': page_obj,
+        'page_obj': page_obj,
+        'search_term': search_term,
+        'sort_key': sort_key,
+        'sort_dir': sort_dir,
     })
 
 # ---------------------- Monthly Payments ----------------------
@@ -426,29 +687,15 @@ def monthly_payments(request, pedi_id=None):
 
     if pedi_id:
         selected_pedi = get_object_or_404(Pedi, pk=pedi_id)
-        members_in_pedi = MemberPedi.objects.filter(pedi=selected_pedi, status='Active').select_related('member')
+        payments_qs = Payment.objects.filter(
+            pedi=selected_pedi,
+            month=current_month,
+            year=current_year
+        ).filter(is_cancelled=False).select_related('member').order_by('member__user__username')
 
-        for mp in members_in_pedi:
-            payment, created = Payment.objects.get_or_create(
-                member=mp.member,
-                pedi=selected_pedi,
-                month=current_month,
-                year=current_year,
-                defaults={
-                    'amount': selected_pedi.monthly_amount,
-                    'status': 'Pending',
-                    'penalty_enabled': selected_pedi.penalty_enabled,
-                    'grace_days': selected_pedi.grace_days,
-                    'enable_late_fee_per_day': selected_pedi.enable_late_fee_per_day,
-                    'late_fee_per_day': selected_pedi.late_fee_per_day,
-                    'enable_fixed_penalty': selected_pedi.enable_fixed_penalty,
-                    'fixed_penalty_amount': selected_pedi.fixed_penalty_amount,
-                    'enable_percentage_penalty': selected_pedi.enable_percentage_penalty,
-                    'percentage_penalty_rate': selected_pedi.percentage_penalty_rate,
-                }
-            )
+        for payment in payments_qs:
             payments.append({
-                'member': mp.member,
+                'member': payment.member,
                 'payment': payment,
                 'amount': payment.amount,
                 'status': payment.status,
@@ -483,16 +730,35 @@ def monthly_payments(request, pedi_id=None):
 @login_required
 @admin_required
 def loan_list(request):
-    loans = Loan.objects.all().select_related('member')
-    status_filter = request.GET.get('status')
-    if status_filter:
-        loans = loans.filter(status=status_filter)
-    return render(request, 'loan_list.html', {'loans': loans})
+    loans = Loan.objects.all().select_related('member', 'member__user')
+    loans, search_term = apply_search(request, loans, [
+        'member__user__first_name', 'member__user__last_name', 'member__user__username'
+    ])
+    status = request.GET.get('status', '')
+    if status:
+        loans = loans.filter(status=status)
+
+    sort_map = {
+        'amount': 'amount',
+        'issued': '-issued_date',
+        'status': 'status',
+        'member': 'member__user__first_name',
+    }
+    loans, sort_key, sort_dir = apply_sorting(request, loans, sort_map, default_order='-issued_date')
+    page_obj = paginate_queryset(request, loans, default_per_page=10)
+    return render(request, 'loan_list.html', {
+        'loans': page_obj,
+        'page_obj': page_obj,
+        'search_term': search_term,
+        'status': status,
+        'sort_key': sort_key,
+        'sort_dir': sort_dir,
+    })
 
 @login_required
 @admin_required
 def loan_create(request):
-    total_paid_pedi_collection = Payment.objects.filter(status='Paid').aggregate(total=Sum('amount'))['total'] or Decimal('0.00')
+    total_paid_pedi_collection = Payment.objects.filter(status='Paid', is_cancelled=False).aggregate(total=Sum('amount'))['total'] or Decimal('0.00')
     total_loan_collection = LoanPayment.objects.aggregate(total=Sum('amount'))['total'] or Decimal('0.00')
     total_active_loan_due = Loan.objects.filter(status='Active').aggregate(total=Sum('remaining_due'))['total'] or Decimal('0.00')
     available_amount = total_paid_pedi_collection + total_loan_collection - total_active_loan_due
@@ -506,7 +772,39 @@ def loan_create(request):
             if requested_amount > available_amount:
                 form.add_error('amount', 'Insufficient collection available to issue this loan. Available amount: ₹{:.2f}'.format(available_amount))
             else:
-                form.save()
+                loan = form.save(commit=False)
+                settings = LoanApplicationSettings.objects.filter(is_active=True).first()
+                if not settings:
+                    settings = LoanApplicationSettings.objects.order_by('-created_at').first()
+                if not settings:
+                    settings = SimpleNamespace(
+                        default_interest_rate=Decimal('10.0'),
+                        default_loan_duration_months=12,
+                        penalty_enabled=False,
+                        grace_days=0,
+                        enable_late_fee_per_day=False,
+                        late_fee_per_day=Decimal('0.00'),
+                        enable_fixed_penalty=False,
+                        fixed_penalty_amount=Decimal('0.00'),
+                        enable_percentage_penalty=False,
+                        percentage_penalty_rate=Decimal('0.00'),
+                    )
+
+                if loan.interest_rate is None:
+                    loan.interest_rate = settings.default_interest_rate
+
+                loan.due_date = timezone.now().date() + relativedelta(months=settings.default_loan_duration_months)
+                loan.penalty_enabled = settings.penalty_enabled
+                loan.grace_days = settings.grace_days
+                loan.enable_late_fee_per_day = settings.enable_late_fee_per_day
+                loan.late_fee_per_day = settings.late_fee_per_day
+                loan.enable_fixed_penalty = settings.enable_fixed_penalty
+                loan.fixed_penalty_amount = settings.fixed_penalty_amount
+                loan.enable_percentage_penalty = settings.enable_percentage_penalty
+                loan.percentage_penalty_rate = settings.percentage_penalty_rate
+                loan.status = 'Active'
+                loan.save()
+
                 messages.success(request, 'Loan issued successfully')
                 return redirect('loan_list')
     else:
@@ -524,9 +822,12 @@ def loan_edit(request, pk):
     if request.method == 'POST':
         form = LoanForm(request.POST, instance=loan)
         if form.is_valid():
-            form.save()
-            messages.success(request, 'Loan updated successfully')
-            return redirect('loan_list')
+            try:
+                form.save()
+                messages.success(request, 'Loan updated successfully')
+                return redirect('loan_list')
+            except ValidationError as e:
+                form.add_error(None, e.message)
     else:
         form = LoanForm(instance=loan)
     return render(request, 'loan_form.html', {'form': form, 'title': 'Edit Loan'})
@@ -567,21 +868,123 @@ def admin_loan_pay(request, loan_id):
 def member_loans(request):
     member = request.user.member_profile
     loans = member.loans.all()
-    return render(request, 'member_loans.html', {'loans': loans})
+    loans, search_term = apply_search(request, loans, [
+        'amount', 'interest_rate', 'status', 'issued_date', 'due_date'
+    ], search_param='q')
+    sort_map = {
+        'amount': 'amount',
+        'due': 'remaining_due',
+        'issue_date': '-issued_date',
+        'status': 'status',
+    }
+    loans, sort_key, sort_dir = apply_sorting(request, loans, sort_map, default_order='-issued_date')
+    page_obj = paginate_queryset(request, loans, default_per_page=10)
+    return render(request, 'member_loans.html', {
+        'loans': page_obj,
+        'page_obj': page_obj,
+        'search_term': search_term,
+        'sort_key': sort_key,
+        'sort_dir': sort_dir,
+    })
 
 @login_required
 @member_required
 def member_payments(request):
     member = request.user.member_profile
-    payments = member.payments.all().order_by('-year', '-month')
-    return render(request, 'member_payments.html', {'payments': payments})
+    search_term = request.GET.get('q', '').strip()
+    status_filter = request.GET.get('status', '').strip()
+    today = timezone.now().date()
+    current_month = today.month
+    current_year = today.year
+
+    # Gather pedis the member has payments or memberships for
+    memberships = MemberPedi.objects.filter(member=member)
+    if status_filter == 'Active':
+        memberships = memberships.filter(status='Active')
+    elif status_filter == 'Exited':
+        memberships = memberships.filter(status='Exited')
+    elif status_filter == 'Closed':
+        memberships = memberships.filter(status__in=['Completed', 'Defaulted'])
+
+    pedi_ids = memberships.values_list('pedi_id', flat=True)
+    pedis = Pedi.objects.filter(id__in=pedi_ids).distinct()
+    if search_term:
+        pedis = pedis.filter(name__icontains=search_term)
+    pedi_sections = []
+    for pedi in pedis:
+        membership = MemberPedi.objects.filter(member=member, pedi=pedi).first()
+        payments_qs = Payment.objects.filter(member=member, pedi=pedi, is_cancelled=False)
+
+        # Only include payments that are Paid OR due/overdue (not future)
+        visible_payments = []
+        total_paid = Decimal('0.00')
+        pending_amount = Decimal('0.00')
+        total_penalty = Decimal('0.00')
+        remaining_payments = 0
+
+        for p in payments_qs.order_by('-year', '-month'):
+            # Skip future pending payments
+            if p.status == 'Pending' and (p.year > current_year or (p.year == current_year and p.month > current_month)):
+                continue
+            # Skip cancelled or other non-relevant statuses
+            if p.status == 'Paid':
+                total_paid += p.amount
+                visible_payments.append({'payment': p, 'badge': 'Paid', 'badge_class': 'bg-success'})
+            elif p.status == 'Pending':
+                overdue_days = p.overdue_days()
+                penalty = p.calculate_penalty()
+                if overdue_days > 0:
+                    badge = 'Overdue'
+                    badge_class = 'bg-danger'
+                else:
+                    badge = 'Pending'
+                    badge_class = 'bg-warning'
+                visible_payments.append({'payment': p, 'badge': badge, 'badge_class': badge_class, 'overdue_days': overdue_days, 'penalty': penalty})
+                pending_amount += p.amount
+                total_penalty += penalty
+                remaining_payments += 1
+
+        if membership:
+            pedi_sections.append({
+                'pedi': pedi,
+                'membership': membership,
+                'payments': visible_payments,
+                'summary': {
+                    'total_paid': total_paid,
+                    'pending_amount': pending_amount,
+                    'total_penalty': total_penalty,
+                    'remaining_payments': remaining_payments,
+                }
+            })
+
+    return render(request, 'member_payments.html', {
+        'pedi_sections': pedi_sections,
+        'search_term': search_term,
+        'status': status_filter,
+    })
 
 @login_required
 @member_required
 def payment_history(request):
     member = request.user.member_profile
-    payments = member.payments.filter(status='Paid').order_by('-payment_date')
-    return render(request, 'payment_history.html', {'payments': payments})
+    payments = member.payments.filter(status='Paid', is_cancelled=False).order_by('-payment_date')
+    payments, search_term = apply_search(request, payments, [
+        'pedi__name', 'transaction_id', 'month', 'year'
+    ], search_param='q')
+    sort_map = {
+        'date': '-payment_date',
+        'amount': 'amount',
+        'pedi': 'pedi__name',
+    }
+    payments, sort_key, sort_dir = apply_sorting(request, payments, sort_map, default_order='-payment_date')
+    page_obj = paginate_queryset(request, payments, default_per_page=10)
+    return render(request, 'payment_history.html', {
+        'payments': page_obj,
+        'page_obj': page_obj,
+        'search_term': search_term,
+        'sort_key': sort_key,
+        'sort_dir': sort_dir,
+    })
 
 # ---------------------- loan Payment ----------------------
 @login_required
@@ -682,14 +1085,44 @@ def loan_payment_online_success(request):
 @member_required
 def loan_payment_history(request):
     member = request.user.member_profile
-    payments = LoanPayment.objects.filter(loan__member=member).order_by('-payment_date')
-    return render(request, 'loan_payment_history.html', {'payments': payments})
+    payments = LoanPayment.objects.filter(loan__member=member).select_related('loan')
+    payments, search_term = apply_search(request, payments, ['loan__id', 'loan__member__user__username'], search_param='q')
+    sort_map = {
+        'amount': 'amount',
+        'date': '-payment_date',
+        'method': 'payment_method',
+    }
+    payments, sort_key, sort_dir = apply_sorting(request, payments, sort_map, default_order='-payment_date')
+    page_obj = paginate_queryset(request, payments, default_per_page=10)
+    return render(request, 'loan_payment_history.html', {
+        'payments': page_obj,
+        'page_obj': page_obj,
+        'search_term': search_term,
+        'sort_key': sort_key,
+        'sort_dir': sort_dir,
+    })
 
 @login_required
 @admin_required
 def admin_loan_payments(request):
     payments = LoanPayment.objects.select_related('loan__member__user').order_by('-payment_date')
-    return render(request, 'admin_loan_payments.html', {'payments': payments})
+    payments, search_term = apply_search(request, payments, [
+        'loan__member__user__first_name', 'loan__member__user__last_name', 'transaction_id'
+    ], search_param='q')
+    sort_map = {
+        'amount': 'amount',
+        'date': '-payment_date',
+        'member': 'loan__member__user__first_name',
+    }
+    payments, sort_key, sort_dir = apply_sorting(request, payments, sort_map, default_order='-payment_date')
+    page_obj = paginate_queryset(request, payments, default_per_page=10)
+    return render(request, 'admin_loan_payments.html', {
+        'payments': page_obj,
+        'page_obj': page_obj,
+        'search_term': search_term,
+        'sort_key': sort_key,
+        'sort_dir': sort_dir,
+    })
 # ---------------------- Online Payment ----------------------
 
 @login_required
@@ -867,7 +1300,9 @@ def export_loans_excel(request):
 @login_required
 @member_required
 def apply_loan(request):
-    settings = LoanApplicationSettings.objects.first()
+    settings = LoanApplicationSettings.objects.filter(is_active=True).first()
+    if not settings:
+        settings = LoanApplicationSettings.objects.order_by('-created_at').first()
     if not settings:
         messages.error(request, 'Loan application period not configured.')
         return redirect('member_dashboard')
@@ -911,10 +1346,27 @@ def apply_loan(request):
 @admin_required
 def admin_loan_applications(request):
     applications = LoanApplication.objects.select_related('member__user').order_by('-applied_date')
-    status_filter = request.GET.get('status')
-    if status_filter:
-        applications = applications.filter(status=status_filter)
-    return render(request, 'admin_loan_applications.html', {'applications': applications})
+    applications, search_term = apply_search(request, applications, [
+        'member__user__first_name', 'member__user__last_name', 'member__user__username'
+    ], search_param='q')
+    status = request.GET.get('status', '')
+    if status:
+        applications = applications.filter(status=status)
+    sort_map = {
+        'amount': 'requested_amount',
+        'applied': '-applied_date',
+        'status': 'status',
+    }
+    applications, sort_key, sort_dir = apply_sorting(request, applications, sort_map, default_order='-applied_date')
+    page_obj = paginate_queryset(request, applications, default_per_page=10)
+    return render(request, 'admin_loan_applications.html', {
+        'applications': page_obj,
+        'page_obj': page_obj,
+        'search_term': search_term,
+        'status': status,
+        'sort_key': sort_key,
+        'sort_dir': sort_dir,
+    })
 
 @login_required
 @admin_required
@@ -924,7 +1376,13 @@ def approve_loan_application(request, pk):
         messages.warning(request, 'This application is no longer pending.')
         return redirect('admin_loan_applications')
 
-    settings = LoanApplicationSettings.objects.first()
+    settings = LoanApplicationSettings.objects.filter(is_active=True).first()
+    if not settings:
+        settings = LoanApplicationSettings.objects.order_by('-created_at').first()
+    if not settings:
+        messages.error(request, 'Loan settings are not configured. Please set active loan settings before approving applications.')
+        return redirect('admin_loan_applications')
+
     if request.method == 'POST':
         interest_rate = Decimal(request.POST.get('interest_rate', settings.default_interest_rate))
         due_date = request.POST.get('due_date')
@@ -987,13 +1445,16 @@ def reject_loan_application(request, pk):
 @login_required
 @admin_required
 def admin_loan_settings(request):
-    settings = LoanApplicationSettings.objects.first()
+    settings = LoanApplicationSettings.objects.filter(is_active=True).first()
+    if not settings:
+        settings = LoanApplicationSettings.objects.order_by('-created_at').first()
     if not settings:
         settings = LoanApplicationSettings.objects.create(
             start_date=timezone.now().date(),
             end_date=timezone.now().date() + timedelta(days=30),
-            default_interest_rate=10.0,
-            default_loan_duration_months=12
+            default_interest_rate=Decimal('10.0'),
+            default_loan_duration_months=12,
+            is_active=True,
         )
 
     if request.method == 'POST':
@@ -1003,33 +1464,71 @@ def admin_loan_settings(request):
         duration = request.POST.get('default_loan_duration_months')
         if start_date and end_date and interest_rate and duration:
             from datetime import datetime
-            settings.start_date = datetime.strptime(start_date, '%Y-%m-%d').date()
-            settings.end_date = datetime.strptime(end_date, '%Y-%m-%d').date()
-            settings.default_interest_rate = Decimal(interest_rate)
-            settings.default_loan_duration_months = int(duration)
-            settings.penalty_enabled = 'penalty_enabled' in request.POST
-            settings.grace_days = int(request.POST.get('grace_days', 0))
-            settings.enable_late_fee_per_day = 'enable_late_fee_per_day' in request.POST
-            settings.late_fee_per_day = Decimal(request.POST.get('late_fee_per_day') or 0)
-            settings.enable_fixed_penalty = 'enable_fixed_penalty' in request.POST
-            settings.fixed_penalty_amount = Decimal(request.POST.get('fixed_penalty_amount') or 0)
-            settings.enable_percentage_penalty = 'enable_percentage_penalty' in request.POST
-            settings.percentage_penalty_rate = Decimal(request.POST.get('percentage_penalty_rate') or 0)
-            settings.save()
-            messages.success(request, 'Loan application settings updated.')
+            LoanApplicationSettings.objects.filter(is_active=True).update(is_active=False)
+
+            new_settings = LoanApplicationSettings.objects.create(
+                start_date=datetime.strptime(start_date, '%Y-%m-%d').date(),
+                end_date=datetime.strptime(end_date, '%Y-%m-%d').date(),
+                default_interest_rate=Decimal(interest_rate),
+                default_loan_duration_months=int(duration),
+                penalty_enabled='penalty_enabled' in request.POST,
+                grace_days=int(request.POST.get('grace_days') or 0),
+                enable_late_fee_per_day='enable_late_fee_per_day' in request.POST,
+                late_fee_per_day=Decimal(request.POST.get('late_fee_per_day') or 0),
+                enable_fixed_penalty='enable_fixed_penalty' in request.POST,
+                fixed_penalty_amount=Decimal(request.POST.get('fixed_penalty_amount') or 0),
+                enable_percentage_penalty='enable_percentage_penalty' in request.POST,
+                percentage_penalty_rate=Decimal(request.POST.get('percentage_penalty_rate') or 0),
+                is_active=True,
+            )
+            messages.success(request, 'Loan application settings saved as a new active version.')
+            return redirect('admin_loan_settings')
         else:
-            messages.error(request, 'Please fill all fields.')
-        return redirect('admin_loan_settings')
+            messages.error(request, 'Please fill all required fields.')
+            return redirect('admin_loan_settings')
 
     context = {'settings': settings}
     return render(request, 'admin_loan_settings.html', context)
+
+
+@login_required
+@admin_required
+def admin_loan_settings_history(request):
+    settings_history = LoanApplicationSettings.objects.order_by('-created_at')
+    page_obj = paginate_queryset(request, settings_history, default_per_page=10)
+    return render(request, 'admin_loan_settings_history.html', {
+        'settings_history': page_obj,
+        'page_obj': page_obj,
+    })
+
 
 # ---------------------- Notice Management ----------------------
 @login_required
 @admin_required
 def notice_list(request):
-    notices = Notice.objects.all().order_by('-created_at')
-    return render(request, 'notice_list.html', {'notices': notices})
+    notices = Notice.objects.select_related('author').all().order_by('-created_at')
+    notices, search_term = apply_search(request, notices, ['title', 'content', 'author__username'])
+    status = request.GET.get('status', '')
+    if status == 'Active':
+        notices = notices.filter(is_active=True)
+    elif status == 'Inactive':
+        notices = notices.filter(is_active=False)
+
+    sort_map = {
+        'title': 'title',
+        'created': '-created_at',
+        'author': 'author__username',
+    }
+    notices, sort_key, sort_dir = apply_sorting(request, notices, sort_map, default_order='-created_at')
+    page_obj = paginate_queryset(request, notices, default_per_page=10)
+    return render(request, 'notice_list.html', {
+        'notices': page_obj,
+        'page_obj': page_obj,
+        'search_term': search_term,
+        'status': status,
+        'sort_key': sort_key,
+        'sort_dir': sort_dir,
+    })
 
 @login_required
 @admin_required

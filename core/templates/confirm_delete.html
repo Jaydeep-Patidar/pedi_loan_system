@@ -4,13 +4,13 @@
     <div class="col-md-6">
         <div class="card">
             <div class="card-header bg-danger text-white">
-                <h4>Confirm Delete</h4>
+                <h4>{{ title|default:"Confirm Delete" }}</h4>
             </div>
             <div class="card-body">
-                <p>Are you sure you want to delete "{{ object }}"?</p>
+                <p>Are you sure you want to {{ title|default:"delete"|lower }} "{{ object }}"?</p>
                 <form method="post">
                     {% csrf_token %}
-                    <button type="submit" class="btn btn-danger">Yes, Delete</button>
+                    <button type="submit" class="btn btn-danger">{{ button_label|default:"Yes, Delete" }}</button>
                     <a href="javascript:history.back()" class="btn btn-secondary">Cancel</a>
                 </form>
             </div>

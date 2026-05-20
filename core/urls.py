@@ -22,6 +22,7 @@ urlpatterns = [
     path('members/create/', views.member_create, name='member_create'),
     path('members/<int:pk>/edit/', views.member_edit, name='member_edit'),
     path('members/<int:pk>/delete/', views.member_delete, name='member_delete'),
+    path('members/<int:pk>/activate/', views.member_activate, name='member_activate'),
     
     # Pedi management
     path('pedis/', views.pedi_list, name='pedi_list'),
@@ -30,6 +31,9 @@ urlpatterns = [
     path('pedis/<int:pk>/edit/', views.pedi_edit, name='pedi_edit'),
     path('pedis/<int:pedi_id>/assign/', views.assign_members, name='assign_members'),
     path('pedis/<int:pedi_id>/payment-history/', views.pedi_payment_history, name='pedi_payment_history'),
+    path('pedis/<int:pedi_id>/members/<int:member_id>/exit/', views.pedi_member_exit, name='pedi_member_exit'),
+    path('pedis/<int:pedi_id>/members/<int:member_id>/exit-reject/', views.reject_member_exit_request, name='reject_member_exit_request'),
+    path('member/pedis/<int:pedi_id>/exit-request/', views.member_pedi_exit_request, name='member_pedi_exit_request'),
     
     # Monthly payments
     path('payments/monthly/<int:pedi_id>/', views.monthly_payments, name='monthly_payments'),
@@ -62,6 +66,7 @@ urlpatterns = [
     path('staff/loan-application/<int:pk>/approve/', views.approve_loan_application, name='approve_loan_application'),
     path('staff/loan-application/<int:pk>/reject/', views.reject_loan_application, name='reject_loan_application'),
     path('staff/loan-settings/', views.admin_loan_settings, name='admin_loan_settings'),
+    path('staff/loan-settings/history/', views.admin_loan_settings_history, name='admin_loan_settings_history'),
 
     # Notices
     path('notices/', views.notice_list, name='notice_list'),

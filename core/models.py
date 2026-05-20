@@ -3,6 +3,7 @@ from django.contrib.auth.models import User
 from django.utils import timezone
 from datetime import timedelta
 from decimal import Decimal
+from django.core.exceptions import ValidationError
 
 class Member(models.Model):
     ROLE_CHOICES = (
@@ -22,7 +23,7 @@ class Member(models.Model):
 
     @property
     def total_paid(self):
-        return self.payments.filter(status='Paid').aggregate(total=models.Sum('amount'))['total'] or 0
+        return self.payments.filter(status='Paid', is_cancelled=False).aggregate(total=models.Sum('amount'))['total'] or 0
 
     @property
     def active_loans(self):
@@ -46,6 +47,36 @@ class Pedi(models.Model):
     percentage_penalty_rate = models.DecimalField(max_digits=5, decimal_places=2, default=0)
 
     def save(self, *args, **kwargs):
+        # Prevent changing financial fields if memberships or payments already exist
+        if self.pk:
+            try:
+                from .models import MemberPedi, Payment
+            except Exception:
+                MemberPedi = None
+                Payment = None
+            try:
+                orig = Pedi.objects.get(pk=self.pk)
+            except Pedi.DoesNotExist:
+                orig = None
+
+            if orig:
+                has_members = False
+                has_payments = False
+                if MemberPedi:
+                    has_members = MemberPedi.objects.filter(pedi=orig).exists()
+                if Payment:
+                    has_payments = Payment.objects.filter(pedi=orig).exists()
+
+                if has_members or has_payments:
+                    locked_fields = [
+                        'monthly_amount', 'duration_months', 'start_date',
+                        'penalty_enabled', 'grace_days', 'enable_late_fee_per_day', 'late_fee_per_day',
+                        'enable_fixed_penalty', 'fixed_penalty_amount', 'enable_percentage_penalty', 'percentage_penalty_rate'
+                    ]
+                    for f in locked_fields:
+                        if getattr(self, f) != getattr(orig, f):
+                            raise ValidationError("Financial settings cannot be modified after members or payments are created for this pedi.")
+
         if not self.end_date:
             from dateutil.relativedelta import relativedelta
             self.end_date = self.start_date + relativedelta(months=self.duration_months)
@@ -58,10 +89,40 @@ class MemberPedi(models.Model):
     member = models.ForeignKey(Member, on_delete=models.CASCADE, related_name='pedi_memberships')
     pedi = models.ForeignKey(Pedi, on_delete=models.CASCADE, related_name='member_pedis')
     joined_date = models.DateField(auto_now_add=True)
-    status = models.CharField(max_length=20, choices=[('Active', 'Active'), ('Completed', 'Completed'), ('Defaulted', 'Defaulted')], default='Active')
+    membership_start_date = models.DateField(default=timezone.now)
+    membership_end_date = models.DateField(null=True, blank=True)
+    joined_month = models.PositiveIntegerField(null=True, blank=True)
+    exit_date = models.DateField(null=True, blank=True)
+    exit_reason = models.TextField(blank=True)
+    member_exit_requested_at = models.DateTimeField(null=True, blank=True)
+    member_exit_request_reason = models.TextField(blank=True)
+    admin_exit_at = models.DateTimeField(null=True, blank=True)
+    admin_exit_reason = models.TextField(blank=True)
+
+    STATUS_CHOICES = (
+        ('Active', 'Active'),
+        ('Exit Requested', 'Exit Requested'),
+        ('Completed', 'Completed'),
+        ('Defaulted', 'Defaulted'),
+        ('Exited', 'Exited'),
+    )
+
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='Active')
 
     class Meta:
         unique_together = ('member', 'pedi')
+
+    def save(self, *args, **kwargs):
+        if self.membership_start_date and not self.joined_month:
+            self.joined_month = self.membership_start_date.month
+        super().save(*args, **kwargs)
+
+    @property
+    def is_active_membership(self):
+        today = timezone.now().date()
+        if self.membership_end_date and self.membership_end_date < today:
+            return False
+        return self.status == 'Active'
 
     def __str__(self):
         return f"{self.member.user.username} - {self.pedi.name}"
@@ -86,6 +147,7 @@ class Payment(models.Model):
     fixed_penalty_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     enable_percentage_penalty = models.BooleanField(default=False)
     percentage_penalty_rate = models.DecimalField(max_digits=5, decimal_places=2, default=0)
+    is_cancelled = models.BooleanField(default=False)
 
     class Meta:
         unique_together = ('member', 'pedi', 'month', 'year')
@@ -146,6 +208,22 @@ class Loan(models.Model):
     status = models.CharField(max_length=20, choices=[('Active', 'Active'), ('Closed', 'Closed')], default='Active')
 
     def save(self, *args, **kwargs):
+        # Prevent changing financial fields if loan payments already exist
+        if self.pk:
+            try:
+                from .models import LoanPayment
+            except Exception:
+                LoanPayment = None
+            if LoanPayment and LoanPayment.objects.filter(loan_id=self.pk).exists():
+                try:
+                    orig = Loan.objects.get(pk=self.pk)
+                except Loan.DoesNotExist:
+                    orig = None
+                if orig:
+                    for f in ('amount', 'interest_rate', 'total_payable'):
+                        if getattr(self, f) != getattr(orig, f):
+                            raise ValidationError("Loan financial details cannot be changed after payments are recorded.")
+
         if not self.total_payable:
             self.total_payable = self.amount + (self.amount * self.interest_rate / 100)
         self.remaining_due = self.total_payable - self.paid_amount
@@ -244,12 +322,22 @@ class LoanApplicationSettings(models.Model):
     fixed_penalty_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     enable_percentage_penalty = models.BooleanField(default=False)
     percentage_penalty_rate = models.DecimalField(max_digits=5, decimal_places=2, default=0)
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         verbose_name_plural = "Loan Application Settings"
+        ordering = ['-created_at']
+
+    def save(self, *args, **kwargs):
+        if self.is_active:
+            LoanApplicationSettings.objects.filter(is_active=True).exclude(pk=self.pk).update(is_active=False)
+        super().save(*args, **kwargs)
 
     def __str__(self):
-        return f"Applications open from {self.start_date} to {self.end_date}"
+        status = 'Active' if self.is_active else 'Inactive'
+        created = self.created_at.strftime('%Y-%m-%d') if self.created_at else 'Unknown'
+        return f"{status} settings created on {created}"
 
 class LoanApplication(models.Model):
     STATUS_CHOICES = (

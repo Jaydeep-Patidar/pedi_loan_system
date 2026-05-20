@@ -7,6 +7,9 @@
                 <h4>{{ title }}</h4>
             </div>
             <div class="card-body">
+                {% if form.financial_locked %}
+                <div class="alert alert-warning">Financial settings cannot be modified after members or payments are created for this pedi.</div>
+                {% endif %}
                 <form method="post">
                     {% csrf_token %}
                     {% for field in form %}

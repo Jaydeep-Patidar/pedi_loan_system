@@ -6,11 +6,20 @@
         <h4>Payment History</h4>
     </div>
     <div class="card-body">
+        <form method="get" class="mb-3 d-flex gap-2 justify-content-between">
+            <input type="search" name="q" value="{{ search_term|default:'' }}" class="form-control form-control-sm w-50" placeholder="Search payment history" />
+            <button type="submit" class="btn btn-primary btn-sm">Search</button>
+        </form>
         <div class="table-responsive">
             <table class="table table-bordered table-striped">
                 <thead>
                     <tr>
-                        <th>Pedi</th><th>Month/Year</th><th>Amount</th><th>Payment Date</th><th>Method</th><th>Transaction ID</th>
+                        <th>Pedi</th>
+                        <th>Month/Year</th>
+                        <th>Amount</th>
+                        <th>Payment Date</th>
+                        <th>Method</th>
+                        <th>Transaction ID</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -29,6 +38,7 @@
                 </tbody>
             </table>
         </div>
+        {% include 'includes/pagination_controls.html' %}
     </div>
 </div>
 {% endblock %}

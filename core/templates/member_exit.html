@@ -1,0 +1,35 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header bg-warning">
+                <h4>{{ form_title|default:'Exit Member from Pedi' }}</h4>
+            </div>
+            <div class="card-body">
+                <p>Member: <strong>{{ member.user.get_full_name }}</strong></p>
+                <p>Pedi: <strong>{{ pedi.name }}</strong></p>
+                <form method="post">
+                    {% csrf_token %}
+                    {% if not request_mode %}
+                    <div class="mb-3">
+                        <label class="form-label">Exit Date</label>
+                        <input type="date" name="exit_date" class="form-control" value="{{ membership.exit_date|default:None }}">
+                    </div>
+                    {% endif %}
+                    <div class="mb-3">
+                        <label class="form-label">{{ request_mode|yesno:'Request Reason,Reason (optional)' }}</label>
+                        <textarea name="{{ request_mode|yesno:'request_reason,exit_reason' }}" class="form-control" rows="4">{% if request_mode %}{{ membership.member_exit_request_reason }}{% else %}{{ membership.exit_reason }}{% endif %}</textarea>
+                    </div>
+                    <button type="submit" class="btn btn-danger">{{ submit_label|default:'Exit Member and Cancel Future Payments' }}</button>
+                    {% if request_mode %}
+                        <a href="{% url 'member_payments' %}" class="btn btn-secondary">Cancel</a>
+                    {% else %}
+                        <a href="{% url 'assign_members' pedi.id %}" class="btn btn-secondary">Cancel</a>
+                    {% endif %}
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

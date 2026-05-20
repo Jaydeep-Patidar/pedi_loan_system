@@ -23,7 +23,9 @@ class PediAdmin(admin.ModelAdmin):
 
 @admin.register(MemberPedi)
 class MemberPediAdmin(admin.ModelAdmin):
-    list_display = ['member', 'pedi', 'joined_date', 'status']
+    list_display = ['member', 'pedi', 'joined_date', 'membership_start_date', 'membership_end_date', 'joined_month', 'status']
+    list_filter = ['status']
+    fields = ['member', 'pedi', 'joined_date', 'membership_start_date', 'joined_month', 'membership_end_date', 'status']
 
 @admin.register(Payment)
 class PaymentAdmin(admin.ModelAdmin):
@@ -63,13 +65,24 @@ class TransactionAdmin(admin.ModelAdmin):
 
 @admin.register(LoanApplicationSettings)
 class LoanApplicationSettingsAdmin(admin.ModelAdmin):
+    list_display = [
+        'created_at', 'is_active', 'start_date', 'end_date', 'default_interest_rate',
+        'default_loan_duration_months', 'grace_days', 'penalty_enabled'
+    ]
+    list_filter = ['is_active', 'penalty_enabled', 'created_at']
+    readonly_fields = ['created_at']
     fields = [
-        'start_date', 'end_date', 'default_interest_rate', 'default_loan_duration_months',
+        'is_active', 'created_at', 'start_date', 'end_date', 'default_interest_rate', 'default_loan_duration_months',
         'penalty_enabled', 'grace_days',
         'enable_late_fee_per_day', 'late_fee_per_day',
         'enable_fixed_penalty', 'fixed_penalty_amount',
         'enable_percentage_penalty', 'percentage_penalty_rate'
     ]
+
+    def has_delete_permission(self, request, obj=None):
+        if obj and obj.is_active:
+            return False
+        return super().has_delete_permission(request, obj)
 
 @admin.register(LoanApplication)
 class LoanApplicationAdmin(admin.ModelAdmin):

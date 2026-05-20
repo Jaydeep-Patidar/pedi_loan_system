@@ -2,27 +2,35 @@
 {% load custom_filters %}
 {% block content %}
 <div class="card">
-    <div class="card-header">
+    <div class="card-header d-flex justify-content-between align-items-center">
         <h4>Loan Applications</h4>
+        <form method="get" class="d-flex gap-2 align-items-center mb-0">
+            <input type="search" name="q" value="{{ search_term|default:'' }}" class="form-control form-control-sm" placeholder="Search member or application" />
+            <select name="status" class="form-select form-select-sm">
+                <option value="">All</option>
+                <option value="Pending" {% if status == 'Pending' %}selected{% endif %}>Pending</option>
+                <option value="Approved" {% if status == 'Approved' %}selected{% endif %}>Approved</option>
+                <option value="Closed" {% if status == 'Closed' %}selected{% endif %}>Closed</option>
+                <option value="Rejected" {% if status == 'Rejected' %}selected{% endif %}>Rejected</option>
+            </select>
+            <button type="submit" class="btn btn-primary btn-sm">Filter</button>
+        </form>
     </div>
     <div class="card-body">
-        <form method="get" class="mb-3">
-            <select name="status" class="form-select w-25" onchange="this.form.submit()">
-                <option value="">All</option>
-                <option value="Pending" {% if request.GET.status == 'Pending' %}selected{% endif %}>Pending</option>
-                <option value="Approved" {% if request.GET.status == 'Approved' %}selected{% endif %}>Approved</option>
-                <option value="Closed" {% if request.GET.status == 'Closed' %}selected{% endif %}>Closed</option>
-                <option value="Rejected" {% if request.GET.status == 'Rejected' %}selected{% endif %}>Rejected</option>
-            </select>
-        </form>
         <div class="table-responsive">
             <table class="table table-bordered">
                 <thead>
-                    <tr><th>Member</th><th>Amount</th><th>Purpose</th><th>Applied Date</th><th>Status</th><th>Action</th></tr>
+                    <tr>
+                        <th>Member</th>
+                        <th>Amount</th>
+                        <th>Purpose</th>
+                        <th>Applied Date</th>
+                        <th>Status</th>
+                        <th>Action</th>
+                    </tr>
                 </thead>
                 <tbody>
                     {% for app in applications %}
-                    <tr>
                         <td>{{ app.member.user.get_full_name }}</td>
                         <td>{{ app.requested_amount|currency }}</td>
                         <td>{{ app.purpose|truncatechars:50 }}</td>
@@ -50,6 +58,7 @@
                 </tbody>
             </table>
         </div>
+        {% include 'includes/pagination_controls.html' %}
     </div>
 </div>
 {% endblock %}

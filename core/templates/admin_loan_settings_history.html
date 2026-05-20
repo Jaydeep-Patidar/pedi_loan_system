@@ -1,0 +1,61 @@
+{% extends 'base.html' %}
+{% load custom_filters %}
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
+                <h4 class="mb-0">Loan Settings History</h4>
+                <a href="{% url 'admin_loan_settings' %}" class="btn btn-light btn-sm">Back to Settings</a>
+            </div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-bordered table-hover">
+                        <thead>
+                            <tr>
+                                <th>Created</th>
+                                <th>Status</th>
+                                <th>Start Date</th>
+                                <th>End Date</th>
+                                <th>Interest Rate</th>
+                                <th>Duration (months)</th>
+                                <th>Grace Days</th>
+                                <th>Penalty</th>
+                                <th>Late Fee</th>
+                                <th>Fixed Penalty</th>
+                                <th>Percentage Penalty</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for setting in settings_history %}
+                            <tr class="{% if setting.is_active %}table-success{% endif %}">
+                                <td>{{ setting.created_at|date:'Y-m-d H:i' }}</td>
+                                <td>{% if setting.is_active %}<span class="badge bg-success">Active</span>{% else %}<span class="badge bg-secondary">Inactive</span>{% endif %}</td>
+                                <td>{{ setting.start_date|date:'Y-m-d' }}</td>
+                                <td>{{ setting.end_date|date:'Y-m-d' }}</td>
+                                <td>{{ setting.default_interest_rate }}%</td>
+                                <td>{{ setting.default_loan_duration_months }}</td>
+                                <td>{{ setting.grace_days }}</td>
+                                <td>{% if setting.penalty_enabled %}Yes{% else %}No{% endif %}</td>
+                                <td>
+                                    {% if setting.enable_late_fee_per_day %}Yes ({{ setting.late_fee_per_day|currency }}){% else %}No{% endif %}
+                                </td>
+                                <td>
+                                    {% if setting.enable_fixed_penalty %}Yes ({{ setting.fixed_penalty_amount|currency }}){% else %}No{% endif %}
+                                </td>
+                                <td>
+                                    {% if setting.enable_percentage_penalty %}Yes ({{ setting.percentage_penalty_rate }}%) {% else %}No{% endif %}
+                                </td>
+                            </tr>
+                            {% empty %}
+                            <tr><td colspan="11">No loan settings history available.</td></tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% include 'includes/pagination_controls.html' %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
