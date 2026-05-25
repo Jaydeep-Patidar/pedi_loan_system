@@ -125,7 +125,6 @@ class PediForm(forms.ModelForm):
             'duration_months',
             'monthly_amount',
             'start_date',
-            'end_date',
             'is_active',
             'penalty_enabled',
             'grace_days',
@@ -138,7 +137,6 @@ class PediForm(forms.ModelForm):
         ]
         widgets = {
             'start_date': forms.DateInput(attrs={'type': 'date'}),
-            'end_date': forms.DateInput(attrs={'type': 'date'}),
         }
 
 
