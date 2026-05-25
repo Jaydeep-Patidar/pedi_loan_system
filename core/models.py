@@ -4,6 +4,7 @@ from django.utils import timezone
 from datetime import timedelta
 from decimal import Decimal
 from django.core.exceptions import ValidationError
+from .utils_penalties import _ensure_single_penalty_method
 
 class Member(models.Model):
     ROLE_CHOICES = (
@@ -198,6 +199,10 @@ class Payment(models.Model):
 
 class Loan(models.Model):
     member = models.ForeignKey(Member, on_delete=models.CASCADE, related_name='loans')
+    overdue_days = models.PositiveIntegerField(default=0)
+    penalty_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    penalty_status = models.CharField(max_length=20, choices=[('None', 'None'), ('Overdue', 'Overdue')], default='None')
+
     amount = models.DecimalField(max_digits=10, decimal_places=2)
     interest_rate = models.DecimalField(max_digits=5, decimal_places=2)  # percentage
     total_payable = models.DecimalField(max_digits=12, decimal_places=2, blank=True)

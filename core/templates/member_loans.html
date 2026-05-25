@@ -22,7 +22,10 @@
                         <th>Issue Date</th>
                         <th>Due Date</th>
                         <th>Status</th>
+                        <th>Overdue Days</th>
+                        <th>Penalty</th>
                         <th>Action</th>
+
                     </tr>
                 </thead>
                 <tbody>
@@ -36,6 +39,9 @@
                         <td>{{ loan.issued_date|date:"d-m-Y" }}</td>
                         <td>{{ loan.due_date|date:"d-m-Y" }}</td>
                         <td>{% if loan.status == 'Active' %}<span class="badge bg-warning">Active</span>{% else %}<span class="badge bg-success">Closed</span>{% endif %}</td>
+                        <td>{{ loan.overdue_days }}</td>
+                        <td>{{ loan.penalty_amount|currency }}</td>
+
                         <td>
     {% if loan.status == 'Active' %}
         <a href="{% url 'loan_pay_online' loan.id %}" class="btn btn-sm btn-primary">Pay Online</a>
@@ -54,3 +60,4 @@
     </div>
 </div>
 {% endblock %}
+

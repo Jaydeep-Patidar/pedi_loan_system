@@ -121,15 +121,26 @@ class PediForm(forms.ModelForm):
     class Meta:
         model = Pedi
         fields = [
-            'name', 'duration_months', 'monthly_amount', 'start_date', 'is_active',
-            'penalty_enabled', 'grace_days',
-            'enable_late_fee_per_day', 'late_fee_per_day',
-            'enable_fixed_penalty', 'fixed_penalty_amount',
-            'enable_percentage_penalty', 'percentage_penalty_rate'
+            'name',
+            'duration_months',
+            'monthly_amount',
+            'start_date',
+            'end_date',
+            'is_active',
+            'penalty_enabled',
+            'grace_days',
+            'enable_late_fee_per_day',
+            'late_fee_per_day',
+            'enable_fixed_penalty',
+            'fixed_penalty_amount',
+            'enable_percentage_penalty',
+            'percentage_penalty_rate',
         ]
         widgets = {
             'start_date': forms.DateInput(attrs={'type': 'date'}),
+            'end_date': forms.DateInput(attrs={'type': 'date'}),
         }
+
 
     LOCKED_MESSAGE = "Financial settings cannot be modified after members or payments are created for this pedi."
 

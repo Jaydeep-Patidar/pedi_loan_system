@@ -18,7 +18,8 @@
             <table class="table table-bordered">
                 <thead>
                     <tr>
-                        <th>Member</th><th>Amount</th><th>Interest</th><th>Total Payable</th><th>Paid</th><th>Due</th><th>Status</th><th>Action</th>
+                        <th>Member</th><th>Amount</th><th>Interest</th><th>Total Payable</th><th>Paid</th><th>Due</th><th>Overdue Days</th><th>Penalty</th><th>Status</th><th>Action</th>
+
                     </tr>
                 </thead>
                 <tbody>
@@ -30,6 +31,9 @@
                         <td>{{ loan.total_payable|currency }}</td>
                         <td>{{ loan.paid_amount|currency }}</td>
                         <td class="{% if loan.remaining_due > 0 %}text-danger{% endif %}">{{ loan.remaining_due|currency }}</td>
+                        <td>{{ loan.overdue_days }}</td>
+                        <td>{{ loan.penalty_amount|currency }}</td>
+
                         <td>{% if loan.status == 'Active' %}<span class="badge bg-warning">Active</span>{% else %}<span class="badge bg-success">Closed</span>{% endif %}</td>
                         <td>
                             <a href="{% url 'loan_edit' loan.id %}" class="btn btn-sm btn-warning">Edit</a>
@@ -47,3 +51,4 @@
     </div>
 </div>
 {% endblock %}
+
