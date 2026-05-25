@@ -1,0 +1,135 @@
+{% extends 'base.html' %}
+{% load custom_filters %}
+
+{% block content %}
+<div class="container" id="receipt">
+    <div class="row justify-content-center">
+        <div class="col-md-8">
+            <div class="card">
+                <div class="card-header bg-success text-white">
+                    <h3 class="mb-0">Withdrawal Receipt</h3>
+                </div>
+                <div class="card-body">
+                    <div class="text-center mb-4">
+                        <h5>Final Settlement</h5>
+                        <p class="text-muted">Receipt #{{ withdrawal.id }}</p>
+                    </div>
+                    
+                    <hr>
+                    
+                    <div class="row mb-3 align-items-start">
+                        <div class="col-md-6">
+                            <p><strong>Member:</strong></p>
+                            <p>{{ withdrawal.member.user.get_full_name }}</p>
+                            <p>{{ withdrawal.member.phone }}</p>
+                            <p>{{ withdrawal.member.user.email }}</p>
+                        </div>
+                        <div class="col-md-6 d-flex flex-column align-items-end">
+                            <p class="mb-1"><strong>Date:</strong> <span>{{ withdrawal.processed_at|date:"d-m-Y H:i" }}</span></p>
+                            <p class="mb-1"><strong>Receipt ID:</strong> <span>#{{ withdrawal.id }}</span></p>
+                            <p class="mb-1"><strong>Status:</strong>
+                                {% if withdrawal.status == 'Completed' %}
+                                    <span class="badge bg-success">Completed</span>
+                                {% elif withdrawal.status == 'Pending' %}
+                                    <span class="badge bg-warning">Pending</span>
+                                {% endif %}
+                            </p>
+                        </div>
+                    </div>
+                    
+                    <hr>
+                    
+                    <div class="mb-3">
+                        <h6>Pedi Withdrawal Calculation</h6>
+                        <table class="table table-sm">
+                            <tr>
+                                <td><strong>Total Pedi Payments (Received):</strong></td>
+                                <td class="text-end">₹ {{ withdrawal.total_paid_amount|floatformat:2 }}</td>
+                            </tr>
+                            <tr>
+                                <td><strong>Pedi Penalties/Fines Deducted:</strong></td>
+                                <td class="text-end text-danger">- ₹ {{ withdrawal.total_penalties_paid|floatformat:2 }}</td>
+                            </tr>
+                            <tr class="table-success fw-bold">
+                                <td><strong>Final Withdrawal Amount:</strong></td>
+                                <td class="text-end text-success">₹ {{ withdrawal.withdrawal_amount|floatformat:2 }}</td>
+                            </tr>
+                        </table>
+                        <div class="alert alert-info mt-2 mb-0">
+                            <small><strong>Note:</strong> This receipt confirms your pedi final settlement. All pedi payments have been accounted for.</small>
+                        </div>
+                    </div>
+                    
+                    <hr>
+                    
+                    <div class="mb-3">
+                        <h6>Payment Details</h6>
+                        <p><strong>Payment Method:</strong> {{ withdrawal.payment_method }}</p>
+                        {% if withdrawal.transaction_reference %}
+                        <p><strong>Transaction Reference:</strong> {{ withdrawal.transaction_reference }}</p>
+                        {% endif %}
+                        {% if withdrawal.processed_by %}
+                        <p><strong>Processed By:</strong> {{ withdrawal.processed_by.get_full_name }}</p>
+                        {% endif %}
+                        {% if withdrawal.notes %}
+                        <p><strong>Notes:</strong> {{ withdrawal.notes }}</p>
+                        {% endif %}
+                    </div>
+                    
+                    <hr>
+                    
+                    <div class="alert alert-info mt-3">
+                        <strong>Note:</strong> This receipt confirms your final settlement withdrawal. Your membership has been closed and you are no longer an active member.
+                    </div>
+                    
+                    <style>
+                        @page { size: A4 portrait; margin: 10mm; }
+                        @media print {
+                            body * { visibility: hidden; }
+                            #receipt, #receipt * { visibility: visible; }
+                            #receipt { position: absolute; left: 0; top: 0; right: 0; box-sizing: border-box; padding: 0 10mm; width: auto; }
+                            .row.justify-content-center { justify-content: flex-start !important; }
+                            .col-md-8 { flex: 0 0 100% !important; max-width: 100% !important; }
+                            .card { box-shadow: none; border: none; width: 100% !important; }
+                            .card-body { font-size: 12px; padding-left: 0.25rem !important; padding-right: 0.25rem !important; }
+                            table { width: 100%; border-collapse: collapse; font-size: 12px; }
+                            h3, h5, h6 { margin: 0; }
+                            .avoid-break { page-break-inside: avoid; }
+                            img { max-width: 100%; height: auto; }
+                            .container { padding: 0; margin: 0; max-width: 100% !important; }
+                            .align-items-end { align-items: flex-end !important; }
+                            .text-end { text-align: end !important; }
+                            .navbar, .sidebar, .no-print { display: none !important; }
+                        }
+                        @media screen {
+                            .print-only { display: none; }
+                        }
+                    </style>
+
+                    <div class="text-center mt-4 no-print">
+                        <button onclick="window.print()" class="btn btn-primary">Print Receipt</button>
+                        <a href="{% url 'member_dashboard' %}" class="btn btn-secondary">Back to Dashboard</a>
+                    </div>
+
+                    <script>
+                        function fitReceiptToPage(){
+                            const el = document.getElementById('receipt');
+                            if(!el) return;
+                            el.style.transform = '';
+                            el.style.transformOrigin = 'top left';
+                            const pageHeight = 1122;
+                            const elHeight = el.scrollHeight;
+                            if(elHeight > pageHeight){
+                                const scale = pageHeight / elHeight;
+                                el.style.transform = 'scale(' + scale + ')';
+                            }
+                        }
+                        window.addEventListener('beforeprint', fitReceiptToPage);
+                        window.addEventListener('afterprint', function(){ const el=document.getElementById('receipt'); if(el) el.style.transform=''; });
+                    </script>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

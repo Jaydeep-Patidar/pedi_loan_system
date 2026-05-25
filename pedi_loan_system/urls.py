@@ -22,4 +22,5 @@ urlpatterns = [
     path('admin/', admin.site.urls),
     path('', lambda request: redirect('login')),
     path('', include('core.urls')),
+    path('', include('withdrawals.urls')),
 ]

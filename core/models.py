@@ -37,6 +37,12 @@ class Pedi(models.Model):
     end_date = models.DateField(blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
     is_active = models.BooleanField(default=True)
+    PEDI_STATUS_CHOICES = (
+        ('Active', 'Active'),
+        ('Completed', 'Completed'),
+        ('Closed', 'Closed'),
+    )
+    pedi_status = models.CharField(max_length=20, choices=PEDI_STATUS_CHOICES, default='Active')
     penalty_enabled = models.BooleanField(default=False)
     grace_days = models.PositiveIntegerField(default=0)
     enable_late_fee_per_day = models.BooleanField(default=False)
@@ -94,6 +100,8 @@ class MemberPedi(models.Model):
     joined_month = models.PositiveIntegerField(null=True, blank=True)
     exit_date = models.DateField(null=True, blank=True)
     exit_reason = models.TextField(blank=True)
+    closed_date = models.DateField(blank=True, null=True)
+    closed_reason = models.TextField(blank=True)
     member_exit_requested_at = models.DateTimeField(null=True, blank=True)
     member_exit_request_reason = models.TextField(blank=True)
     admin_exit_at = models.DateTimeField(null=True, blank=True)
@@ -274,6 +282,7 @@ class LoanPayment(models.Model):
     payment_method = models.CharField(max_length=20, choices=[('Online', 'Online'), ('Cash', 'Cash')], default='Online')
 
     def save(self, *args, **kwargs):
+        _ensure_single_penalty_method(self)
         super().save(*args, **kwargs)
         # Update loan totals
         total_paid = self.loan.payments.aggregate(total=models.Sum('amount'))['total'] or 0
@@ -370,3 +379,5 @@ class Notice(models.Model):
 
     def __str__(self):
         return self.title
+
+

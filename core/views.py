@@ -25,14 +25,41 @@ from rest_framework import status
 from django.core.exceptions import ValidationError
 
 from .models import Member, Pedi, MemberPedi, Payment, Loan, LoanPayment, Transaction, LoanTransaction, LoanApplication, LoanApplicationSettings, Notice
-from .forms import MemberForm, PediForm, LoanForm, PasswordResetRequestForm, SetPasswordForm, PasswordChangeForm, NoticeForm
+from .forms import MemberForm, PediForm, LoanForm, PasswordResetRequestForm, SetPasswordForm, PasswordChangeForm, NoticeForm, ReactivateMemberForm
+from withdrawals.models import WithdrawalRequest, Withdrawal
 from .decorators import admin_required, member_required
 from .authentication import generate_jwt_token, decode_jwt_token
 from .utils import apply_search, apply_status_filter, apply_sorting, paginate_queryset
+from withdrawals.services import can_member_withdraw, calculate_withdrawal_amount, has_pending_withdrawal
 from pedi_loan_system.settings import RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET
 
 from datetime import timedelta
 from dateutil.relativedelta import relativedelta
+
+available_fund = None
+
+
+def calculate_available_balance():
+    """Return the available balance for issuing or approving loans.
+
+    This uses the configured external available_fund if provided, otherwise
+    falls back to a calculation based on paid pedi collections, loan receipts,
+    active loan dues, and completed withdrawals.
+    """
+    if available_fund:
+        try:
+            available_amount = available_fund()
+            if available_amount is not None:
+                return max(Decimal('0.00'), available_amount)
+        except Exception:
+            pass
+
+    total_paid_pedi_collection = Payment.objects.filter(status='Paid', is_cancelled=False).aggregate(total=Sum('amount'))['total'] or Decimal('0.00')
+    total_loan_collection = LoanPayment.objects.aggregate(total=Sum('amount'))['total'] or Decimal('0.00')
+    total_active_loan_due = Loan.objects.filter(status='Active').aggregate(total=Sum('remaining_due'))['total'] or Decimal('0.00')
+    total_withdrawn = Withdrawal.objects.filter(status='Completed').aggregate(total=Sum('withdrawal_amount'))['total'] or Decimal('0.00')
+    available_amount = total_paid_pedi_collection + total_loan_collection - total_active_loan_due - total_withdrawn
+    return max(Decimal('0.00'), available_amount)
 
 
 def _get_pedi_schedule_end(pedi, membership_end_date=None):
@@ -94,6 +121,16 @@ def login_view(request):
         password = request.POST['password']
         user = authenticate(request, username=username, password=password)
         if user:
+            # Check if member is active
+            try:
+                member = user.member_profile
+                if not member.is_active:
+                    messages.error(request, 'Your account has been deactivated. Please contact the administrator.')
+                    return render(request, 'login.html')
+            except:
+                # If user doesn't have member profile, allow login (e.g., admin/staff)
+                pass
+            
             login(request, user)
             return redirect('dashboard')
         else:
@@ -113,6 +150,15 @@ def token_obtain_pair(request):
     user = authenticate(request, username=username, password=password)
     if user is None:
         return Response({'detail': 'Invalid credentials'}, status=status.HTTP_400_BAD_REQUEST)
+
+    # Check if member is active
+    try:
+        member = user.member_profile
+        if not member.is_active:
+            return Response({'detail': 'Your account has been deactivated. Please contact the administrator.'}, status=status.HTTP_403_FORBIDDEN)
+    except:
+        # If user doesn't have member profile, allow (e.g., admin/staff)
+        pass
 
     access_token = generate_jwt_token(user, token_type='access')
     refresh_token = generate_jwt_token(user, token_type='refresh')
@@ -224,6 +270,12 @@ def dashboard(request):
         member.role = 'admin'
         member.save()
     
+    # Check if member is inactive (applies only to non-admin members)
+    if member.role == 'member' and not member.is_active:
+        messages.error(request, 'Your account has been deactivated. You cannot access the system.')
+        logout(request)
+        return redirect('login')
+    
     # Now redirect to the correct dashboard based on role
     if member.role == 'admin':
         return redirect('admin_dashboard')
@@ -294,6 +346,10 @@ def admin_dashboard(request):
         'recent_members': recent_members,
         'all_members_payments': all_members_payments,
         'current_year': current_year,
+        # Withdrawal metrics
+        'pending_withdrawals_count': WithdrawalRequest.objects.filter(status='Pending').count(),
+        'total_pending_withdrawable': WithdrawalRequest.objects.filter(status='Pending').aggregate(total=Sum('calculated_amount'))['total'] or Decimal('0.00'),
+        'recent_withdrawals': Withdrawal.objects.filter(status='Completed').select_related('member').order_by('-processed_at')[:5],
     }
     return render(request, 'admin_dashboard.html', context)
 
@@ -306,13 +362,24 @@ def member_dashboard(request):
     total_loan_due = loans.aggregate(total=Sum('remaining_due'))['total'] or 0
     payments = member.payments.filter(status='Paid', is_cancelled=False).order_by('-payment_date')[:10]
 
+    # Withdrawal info for member
+    can_withdraw, withdraw_errors = can_member_withdraw(member)
+    calc = calculate_withdrawal_amount(member)
+    withdrawable_amount = calc.get('withdrawable_amount', Decimal('0.00'))
+    has_pending = has_pending_withdrawal(member)
+
     context = {
         'member': member,
         'total_paid': total_paid,
         'total_loan_due': total_loan_due,
         'active_loans': loans,
         'recent_payments': payments,
+        'withdrawable_amount': withdrawable_amount,
+        'can_withdraw': can_withdraw,
+        'withdraw_errors': withdraw_errors,
+        'has_pending_withdrawal': has_pending,
     }
+
     return render(request, 'member_dashboard.html', context)
 
 # ---------------------- Member Management (Admin) ----------------------
@@ -476,6 +543,10 @@ def pedi_edit(request, pk):
 @admin_required
 def assign_members(request, pedi_id):
     pedi = get_object_or_404(Pedi, pk=pedi_id)
+    # Prevent assigning members to completed/closed pedis
+    if getattr(pedi, 'pedi_status', 'Active') != 'Active':
+        messages.error(request, 'Cannot assign members to a completed or closed pedi.')
+        return redirect('pedi_list')
     members = Member.objects.filter(role='member', is_active=True)
     assigned = MemberPedi.objects.filter(pedi=pedi).values_list('member_id', flat=True)
     existing_memberships = {mp.member_id: mp for mp in MemberPedi.objects.filter(pedi=pedi)}
@@ -758,18 +829,13 @@ def loan_list(request):
 @login_required
 @admin_required
 def loan_create(request):
-    total_paid_pedi_collection = Payment.objects.filter(status='Paid', is_cancelled=False).aggregate(total=Sum('amount'))['total'] or Decimal('0.00')
-    total_loan_collection = LoanPayment.objects.aggregate(total=Sum('amount'))['total'] or Decimal('0.00')
-    total_active_loan_due = Loan.objects.filter(status='Active').aggregate(total=Sum('remaining_due'))['total'] or Decimal('0.00')
-    available_amount = total_paid_pedi_collection + total_loan_collection - total_active_loan_due
-    if available_amount < 0:
-        available_amount = Decimal('0.00')
+    available_amount = calculate_available_balance()
 
     if request.method == 'POST':
         form = LoanForm(request.POST)
         if form.is_valid():
             requested_amount = form.cleaned_data['amount']
-            if requested_amount > available_amount:
+            if available_amount is not None and requested_amount > available_amount:
                 form.add_error('amount', 'Insufficient collection available to issue this loan. Available amount: ₹{:.2f}'.format(available_amount))
             else:
                 loan = form.save(commit=False)
@@ -1392,6 +1458,11 @@ def approve_loan_application(request, pk):
             from datetime import datetime
             due_date = datetime.strptime(due_date, '%Y-%m-%d').date()
 
+        fund = calculate_available_balance()
+        if application.requested_amount > fund:
+            messages.error(request, f'Cannot approve: insufficient available fund (Available: ₹{fund}).')
+            return redirect('admin_loan_applications')
+
         # Create actual Loan with penalty settings preserved from current loan settings
         loan = Loan.objects.create(
             member=application.member,
@@ -1466,7 +1537,7 @@ def admin_loan_settings(request):
             from datetime import datetime
             LoanApplicationSettings.objects.filter(is_active=True).update(is_active=False)
 
-            new_settings = LoanApplicationSettings.objects.create(
+            new_settings = LoanApplicationSettings(
                 start_date=datetime.strptime(start_date, '%Y-%m-%d').date(),
                 end_date=datetime.strptime(end_date, '%Y-%m-%d').date(),
                 default_interest_rate=Decimal(interest_rate),
@@ -1481,7 +1552,14 @@ def admin_loan_settings(request):
                 percentage_penalty_rate=Decimal(request.POST.get('percentage_penalty_rate') or 0),
                 is_active=True,
             )
-            messages.success(request, 'Loan application settings saved as a new active version.')
+            try:
+                new_settings.full_clean()
+                new_settings.save()
+                messages.success(request, 'Loan application settings saved as a new active version.')
+            except ValidationError as exc:
+                error_message = exc.messages[0] if exc.messages else 'Please fix the penalty settings.'
+                messages.error(request, error_message)
+                return redirect('admin_loan_settings')
             return redirect('admin_loan_settings')
         else:
             messages.error(request, 'Please fill all required fields.')

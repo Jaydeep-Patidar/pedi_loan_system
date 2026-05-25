@@ -14,6 +14,19 @@
             </div>
         </div>
         <div class="col-md-4 mb-3">
+            <div class="card text-white bg-success">
+                <div class="card-body">
+                    <h5 class="card-title">Withdrawable (Pedi)</h5>
+                    <h2>₹ {{ withdrawable_amount|floatformat:2 }}</h2>
+                    {% if has_pending_withdrawal %}
+                        <small class="d-block">You have a pending withdrawal request.</small>
+                    {% elif not can_withdraw %}
+                        <small class="d-block text-warning">Not eligible to request withdrawal</small>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4 mb-3">
             <div class="card text-white bg-warning">
                 <div class="card-body">
                     <h5 class="card-title">Total Loan Due</h5>
@@ -82,6 +95,22 @@
     <!-- ================================================= -->
 
     <div class="row mt-4">
+        <div class="col-12 mb-3">
+            <div class="card">
+                <div class="card-body">
+                    <div class="row text-center">
+                        <div class="col-sm-6 col-md-4 mb-2">
+                            <h6>Active Loan Due</h6>
+                            <h5>₹ {{ total_loan_due|currency }}</h5>
+                        </div>
+                        <div class="col-sm-6 col-md-4 mb-2">
+                            <h6>Pedi Withdrawable</h6>
+                            <h5 class="text-success">₹ {{ withdrawable_amount|floatformat:2 }}</h5>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
         <div class="col-md-6">
             <div class="card">
                 <div class="card-header">

@@ -74,4 +74,5 @@ urlpatterns = [
     path('notices/<int:pk>/edit/', views.notice_edit, name='notice_edit'),
     path('notices/<int:pk>/delete/', views.notice_delete, name='notice_delete'),
     path('member/notices/', views.member_notices, name='member_notices'),
-]
+    
+    ]

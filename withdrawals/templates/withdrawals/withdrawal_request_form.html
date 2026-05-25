@@ -1,0 +1,75 @@
+{% extends 'base.html' %}
+{% load custom_filters %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row">
+        <div class="col-md-8">
+            <h2 class="mb-4">Request Final Settlement Withdrawal</h2>
+            
+            {% if not can_withdraw %}
+            <div class="alert alert-danger">
+                <h5>You are not eligible for withdrawal</h5>
+                <ul>
+                    {% for error in errors %}
+                    <li>{{ error }}</li>
+                    {% endfor %}
+                </ul>
+            </div>
+            {% else %}
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5>Pedi Withdrawal Calculation</h5>
+                </div>
+                <div class="card-body">
+                    <table class="table table-sm">
+                        <tr>
+                            <td><strong>Total Pedi Payments (Received):</strong></td>
+                            <td class="text-end">₹ {{ calculation.total_pedi_paid|floatformat:2 }}</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Pedi Penalties/Fines:</strong></td>
+                            <td class="text-end text-danger">- ₹ {{ calculation.total_pedi_penalties|floatformat:2 }}</td>
+                        </tr>
+                        <tr class="table-success fw-bold">
+                            <td><strong>Final Withdrawable Amount:</strong></td>
+                            <td class="text-end text-success">₹ {{ calculation.withdrawable_amount|floatformat:2 }}</td>
+                        </tr>
+                    </table>
+                </div>
+            </div>
+            
+            <div class="card">
+                <div class="card-header">
+                    <h5>Submit Request</h5>
+                </div>
+                <div class="card-body">
+                    {% if has_pending_withdrawal %}
+                    <div class="alert alert-warning">
+                        You already have a pending withdrawal request. You cannot submit another request until the current one is approved or rejected.
+                        <br>
+                        <a href="{% url 'withdrawal_requests_list' %}">View My Withdrawal Requests</a>
+                    </div>
+                    {% endif %}
+                    <form method="post">
+                        {% csrf_token %}
+                        
+                        <div class="form-group mb-3">
+                            <label for="{{ form.remarks.id_for_label }}">Remarks (Optional)</label>
+                            {{ form.remarks }}
+                        </div>
+                        
+                        <div class="alert alert-info">
+                            <strong>Note:</strong> After submitting, an administrator will review your request and process the withdrawal.
+                        </div>
+                        
+                        <button type="submit" class="btn btn-primary" {% if has_pending_withdrawal %}disabled{% endif %}>Submit Request</button>
+                        <a href="{% url 'member_dashboard' %}" class="btn btn-secondary">Cancel</a>
+                    </form>
+                </div>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -8,6 +8,12 @@
             <div class="card text-white bg-primary"><div class="card-body"><h5>Total Members</h5><h2>{{ total_members }}</h2></div></div>
         </div>
         <div class="col-md-3 mb-3">
+            <div class="card text-white bg-dark"><div class="card-body"><h5>Pending Withdrawals</h5><h2>{{ pending_withdrawals_count }}</h2></div></div>
+        </div>
+        <div class="col-md-3 mb-3">
+            <div class="card text-white bg-warning"><div class="card-body"><h5>Total Pending Withdrawable</h5><h2>{{ total_pending_withdrawable|currency }}</h2></div></div>
+        </div>
+        <div class="col-md-3 mb-3">
             <div class="card text-white bg-success"><div class="card-body"><h5>Total Collection</h5><h2>{{ total_collection|currency }}</h2></div></div>
         </div>
         <div class="col-md-3 mb-3">
@@ -29,11 +35,6 @@
         </div>
         <div class="col-md-3 mb-3">
             <div class="card text-white bg-dark"><div class="card-body"><h5>Total Loan Fine</h5><h2>{{ total_loan_fine|currency }}</h2></div></div>
-        </div>
-    </div>
-    <div class="row">
-        <div class="col-md-3 mb-3">
-            <div class="card text-white bg-danger"><div class="card-body"><h5>Total Pedi Fine</h5><h2>{{ total_pedi_fine|currency }}</h2></div></div>
         </div>
     </div>
 
@@ -73,8 +74,33 @@
                     </div>
                 </div>
             </div>
+            
+            <div class="card mt-3">
+                <div class="card-header">Recent Pedi Withdrawals</div>
+                <div class="card-body">
+                    {% if recent_withdrawals %}
+                    <div class="table-responsive">
+                        <table class="table table-sm">
+                            <thead><tr><th>Member</th><th>Amount</th><th>Date</th></tr></thead>
+                            <tbody>
+                                {% for w in recent_withdrawals %}
+                                <tr>
+                                    <td>{{ w.member.user.get_full_name }}</td>
+                                    <td>{{ w.withdrawal_amount|currency }}</td>
+                                    <td>{{ w.processed_at|date:"d-m-Y" }}</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    {% else %}
+                    <p class="text-muted">No recent withdrawals.</p>
+                    {% endif %}
+                </div>
+            </div>
         </div>
     </div>
+
 
     <div class="row">
         <div class="col-md-6">

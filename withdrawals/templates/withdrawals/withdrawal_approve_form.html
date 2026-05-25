@@ -1,0 +1,54 @@
+{% extends 'base.html' %}
+{% load custom_filters %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row">
+        <div class="col-md-6">
+            <h2 class="mb-4">Approve Pedi Withdrawal Request #{{ request_obj.id }}</h2>
+            
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5>Pedi Withdrawal Summary</h5>
+                </div>
+                <div class="card-body">
+                    <p><strong>Member:</strong> {{ request_obj.member.user.get_full_name }}</p>
+                    <p><strong>Pedi Amount Requested:</strong> ₹ {{ request_obj.requested_amount|floatformat:2 }}</p>
+                    <p><strong>Withdrawable Amount:</strong> ₹ {{ calculation.withdrawable_amount|floatformat:2 }}</p>
+                </div>
+            </div>
+            
+            <div class="card">
+                <div class="card-header">
+                    <h5>Payment Processing Details</h5>
+                </div>
+                <div class="card-body">
+                    <form method="post">
+                        {% csrf_token %}
+                        
+                        <div class="form-group mb-3">
+                            <label for="{{ form.payment_method.id_for_label }}">Payment Method *</label>
+                            {{ form.payment_method }}
+                            <small class="form-text text-muted d-block mt-1">Select how the pedi settlement will be paid</small>
+                        </div>
+                        
+                        <div class="form-group mb-3">
+                            <label for="{{ form.transaction_reference.id_for_label }}">Transaction Reference *</label>
+                            {{ form.transaction_reference }}
+                            <small class="form-text text-muted d-block mt-1">Bank transfer ID, cheque number, UPI reference, etc.</small>
+                        </div>
+                        
+                        <div class="form-group mb-3">
+                            <label for="{{ form.notes.id_for_label }}">Notes (Optional)</label>
+                            {{ form.notes }}
+                        </div>
+                        
+                        <button type="submit" class="btn btn-success">Approve Withdrawal</button>
+                        <a href="{% url 'withdrawal_admin_detail' request_obj.id %}" class="btn btn-secondary">Cancel</a>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

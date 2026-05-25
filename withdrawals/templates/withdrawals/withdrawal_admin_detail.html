@@ -1,0 +1,136 @@
+{% extends 'base.html' %}
+{% load custom_filters %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row">
+        <div class="col-md-10">
+            <h2 class="mb-4">Withdrawal Request #{{ request_obj.id }}</h2>
+            
+            <div class="row">
+                <div class="col-md-8">
+                    <div class="card mb-4">
+                        <div class="card-header">
+                            <h5>Request Details</h5>
+                        </div>
+                        <div class="card-body">
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <p><strong>Member:</strong> {{ request_obj.member.user.get_full_name }}</p>
+                                    <p><strong>Phone:</strong> {{ request_obj.member.phone }}</p>
+                                    <p><strong>Email:</strong> {{ request_obj.member.user.email }}</p>
+                                </div>
+                                <div class="col-md-6">
+                                    <p><strong>Amount Requested:</strong> ₹ {{ request_obj.requested_amount|floatformat:2 }}</p>
+                                    <p><strong>Created:</strong> {{ request_obj.created_at|date:"d-m-Y H:i" }}</p>
+                                    <p><strong>Status:</strong>
+                                        {% if request_obj.status == 'Pending' %}
+                                            <span class="badge bg-warning">Pending</span>
+                                        {% elif request_obj.status == 'Approved' %}
+                                            <span class="badge bg-info">Approved</span>
+                                        {% elif request_obj.status == 'Rejected' %}
+                                            <span class="badge bg-danger">Rejected</span>
+                                        {% elif request_obj.status == 'Withdrawn' %}
+                                            <span class="badge bg-success">Withdrawn</span>
+                                        {% endif %}
+                                    </p>
+                                </div>
+                            </div>
+                            
+                            {% if request_obj.remarks %}
+                            <div class="mt-3">
+                                <strong>Member Remarks:</strong>
+                                <p>{{ request_obj.remarks }}</p>
+                            </div>
+                            {% endif %}
+                        </div>
+                    </div>
+                    
+                    <div class="card mb-4">
+                        <div class="card-header">
+                            <h5>Pedi Withdrawal Calculation</h5>
+                        </div>
+                        <div class="card-body">
+                            <table class="table table-sm">
+                                <tr>
+                                    <td><strong>Total Pedi Payments (Received):</strong></td>
+                                    <td class="text-end">₹ {{ calculation.total_pedi_paid|floatformat:2 }}</td>
+                                </tr>
+                                <tr>
+                                    <td><strong>Pedi Penalties/Fines:</strong></td>
+                                    <td class="text-end text-danger">- ₹ {{ calculation.total_pedi_penalties|floatformat:2 }}</td>
+                                </tr>
+                                <tr class="table-success fw-bold">
+                                    <td><strong>Final Withdrawable Amount:</strong></td>
+                                    <td class="text-end text-success">₹ {{ calculation.withdrawable_amount|floatformat:2 }}</td>
+                                </tr>
+                            </table>
+                        </div>
+                    </div>
+
+                    {% if withdrawal %}
+                    <div class="card mb-4">
+                        <div class="card-header">
+                            <h5>Withdrawal Transaction</h5>
+                        </div>
+                        <div class="card-body">
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <p><strong>Status:</strong>
+                                        {% if withdrawal.status == 'Pending' %}
+                                            <span class="badge bg-warning">Pending</span>
+                                        {% elif withdrawal.status == 'Completed' %}
+                                            <span class="badge bg-success">Completed</span>
+                                        {% elif withdrawal.status == 'Failed' %}
+                                            <span class="badge bg-danger">Failed</span>
+                                        {% endif %}
+                                    </p>
+                                    <p><strong>Payment Method:</strong> {{ withdrawal.payment_method }}</p>
+                                    {% if withdrawal.transaction_reference %}
+                                    <p><strong>Transaction Ref:</strong> {{ withdrawal.transaction_reference }}</p>
+                                    {% endif %}
+                                </div>
+                                <div class="col-md-6">
+                                    {% if withdrawal.processed_by %}
+                                    <p><strong>Processed By:</strong> {{ withdrawal.processed_by.get_full_name }}</p>
+                                    {% endif %}
+                                    {% if withdrawal.processed_at %}
+                                    <p><strong>Processed At:</strong> {{ withdrawal.processed_at|date:"d-m-Y H:i" }}</p>
+                                    {% endif %}
+                                </div>
+                            </div>
+                            
+                            {% if withdrawal.status == 'Pending' %}
+                            <div class="mt-3">
+                                <a href="{% url 'process_withdrawal_payment' withdrawal.id %}" class="btn btn-success">Process Payment</a>
+                            </div>
+                            {% endif %}
+                        </div>
+                    </div>
+                    {% endif %}
+                </div>
+                
+                <div class="col-md-4">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5>Actions</h5>
+                        </div>
+                        <div class="card-body">
+                            {% if request_obj.status == 'Pending' %}
+                                <a href="{% url 'approve_withdrawal' request_obj.id %}" class="btn btn-success w-100 mb-2">Approve Request</a>
+                                <a href="{% url 'reject_withdrawal' request_obj.id %}" class="btn btn-danger w-100">Reject Request</a>
+                            {% else %}
+                                <p class="text-muted">No actions available for this status</p>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="mt-4">
+                <a href="{% url 'withdrawal_requests_admin_list' %}" class="btn btn-secondary">Back to Requests</a>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

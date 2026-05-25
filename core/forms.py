@@ -170,6 +170,22 @@ class PediForm(forms.ModelForm):
                     # For DecimalField and DateField comparisons, normalize
                     if new_val != old_val:
                         raise ValidationError(self.LOCKED_MESSAGE)
+
+        penalty_enabled = cleaned_data.get('penalty_enabled')
+        enable_late_fee = cleaned_data.get('enable_late_fee_per_day')
+        enable_fixed = cleaned_data.get('enable_fixed_penalty')
+        enable_percentage = cleaned_data.get('enable_percentage_penalty')
+
+        if not penalty_enabled:
+            cleaned_data['enable_late_fee_per_day'] = False
+            cleaned_data['enable_fixed_penalty'] = False
+            cleaned_data['enable_percentage_penalty'] = False
+        elif enable_late_fee:
+            cleaned_data['enable_fixed_penalty'] = False
+            cleaned_data['enable_percentage_penalty'] = False
+        elif enable_fixed and enable_percentage:
+            raise ValidationError('Only one penalty method can be enabled at a time.')
+
         return cleaned_data
 
 class LoanForm(forms.ModelForm):
@@ -209,3 +225,17 @@ class LoanForm(forms.ModelForm):
                     if new_val != old_val:
                         raise ValidationError(self.LOCKED_MESSAGE)
         return cleaned_data
+
+
+
+
+class ReactivateMemberForm(forms.Form):
+    """Form for member to reactivate in a pedi."""
+    class Meta:
+        from .models import Pedi
+    
+    pedi = forms.ModelChoiceField(
+        queryset=Pedi.objects.filter(pedi_status='Active'),
+        widget=forms.Select(attrs={'class': 'form-control'}),
+        label='Select Pedi to Rejoin'
+    )

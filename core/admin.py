@@ -99,6 +99,4 @@ class NoticeAdmin(admin.ModelAdmin):
         self.message_user(request, "Please use the approve button on each application.")
     approve_selected.short_description = "Approve selected (use detail view)"
 
-    def reject_selected(self, request, queryset):
-        queryset.update(status='Rejected')
-    reject_selected.short_description = "Reject selected"
+

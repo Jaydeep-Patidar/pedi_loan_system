@@ -1,0 +1,57 @@
+{% extends 'base.html' %}
+{% load custom_filters %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row">
+        <div class="col-md-6">
+            <h2 class="mb-4">Process Withdrawal Payment</h2>
+            
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5>Withdrawal Summary</h5>
+                </div>
+                <div class="card-body">
+                    <p><strong>Member:</strong> {{ withdrawal.member.user.get_full_name }}</p>
+                    <p><strong>Withdrawal Amount:</strong> ₹ {{ withdrawal.withdrawal_amount|floatformat:2 }}</p>
+                    <p><strong>Payment Method:</strong> {{ withdrawal.payment_method }}</p>
+                </div>
+            </div>
+            
+            <div class="card">
+                <div class="card-header">
+                    <h5>Payment Details</h5>
+                </div>
+                <div class="card-body">
+                    <form method="post">
+                        {% csrf_token %}
+                        
+                        <div class="form-group mb-3">
+                            <label for="{{ form.payment_method.id_for_label }}">Payment Method *</label>
+                            {{ form.payment_method }}
+                        </div>
+                        
+                        <div class="form-group mb-3">
+                            <label for="{{ form.transaction_reference.id_for_label }}">Transaction Reference *</label>
+                            {{ form.transaction_reference }}
+                            <small class="form-text text-muted">e.g., Bank ref, UPI ID, Cheque no.</small>
+                        </div>
+                        
+                        <div class="form-group mb-3">
+                            <label for="{{ form.notes.id_for_label }}">Notes (Optional)</label>
+                            {{ form.notes }}
+                        </div>
+                        
+                        <div class="alert alert-info">
+                            <strong>Note:</strong> After payment processing, the member will be deactivated and cannot access pedi accounts.
+                        </div>
+                        
+                        <button type="submit" class="btn btn-success">Process Payment</button>
+                        <a href="{% url 'withdrawal_admin_detail' withdrawal.withdrawal_request.id %}" class="btn btn-secondary">Cancel</a>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

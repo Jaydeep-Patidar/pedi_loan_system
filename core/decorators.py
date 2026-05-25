@@ -17,7 +17,11 @@ def member_required(view_func):
         if not request.user.is_authenticated:
             return redirect('login')
         if hasattr(request.user, 'member_profile'):
-            if request.user.member_profile.role == 'member':
+            member = request.user.member_profile
+            if member.role == 'member':
+                if not member.is_active:
+                    messages.error(request, 'Your account has been deactivated. You cannot access member features.')
+                    return redirect('logout')
                 return view_func(request, *args, **kwargs)
         messages.error(request, 'Member access required')
         return redirect('dashboard')

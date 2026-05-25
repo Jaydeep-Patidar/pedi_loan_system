@@ -69,4 +69,43 @@
         </div>
     </div>
 </div>
+<script>
+    document.addEventListener('DOMContentLoaded', function () {
+        const penaltyEnabled = document.getElementById('penalty_enabled');
+        const lateFee = document.getElementById('enable_late_fee_per_day');
+        const fixedPenalty = document.getElementById('enable_fixed_penalty');
+        const percentagePenalty = document.getElementById('enable_percentage_penalty');
+
+        function syncPenaltyCheckboxes(changed) {
+            if (!changed.checked) {
+                return;
+            }
+            [lateFee, fixedPenalty, percentagePenalty].forEach(function (checkbox) {
+                if (checkbox !== changed && checkbox) {
+                    checkbox.checked = false;
+                }
+            });
+        }
+
+        if (penaltyEnabled) {
+            penaltyEnabled.addEventListener('change', function () {
+                if (!this.checked) {
+                    if (lateFee) lateFee.checked = false;
+                    if (fixedPenalty) fixedPenalty.checked = false;
+                    if (percentagePenalty) percentagePenalty.checked = false;
+                }
+            });
+        }
+
+        [lateFee, fixedPenalty, percentagePenalty].forEach(function (checkbox) {
+            if (checkbox) {
+                checkbox.addEventListener('change', function () {
+                    if (this.checked) {
+                        syncPenaltyCheckboxes(this);
+                    }
+                });
+            }
+        });
+    });
+</script>
 {% endblock %}
