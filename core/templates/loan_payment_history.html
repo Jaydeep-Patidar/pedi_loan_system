@@ -11,11 +11,15 @@
             <button type="submit" class="btn btn-primary btn-sm">Search</button>
         </form>
         <div class="table-responsive">
-            <table class="table table-bordered">
-                <thead>
+            <table class="table table-bordered table-sm">
+                <thead class="table-light">
                     <tr>
                         <th>Loan ID</th>
-                        <th>Amount Paid</th>
+                        <th>EMI Paid</th>
+                        <th>Penalty Paid</th>
+                        <th>Total Paid</th>
+                        <th>Due Date</th>
+                        <th>Grace Days</th>
                         <th>Payment Date</th>
                         <th>Method</th>
                         <th>Transaction ID</th>
@@ -25,13 +29,17 @@
                     {% for payment in payments %}
                     <tr>
                         <td>#{{ payment.loan.id }}</td>
-                        <td>{{ payment.amount|currency }}</td>
-                        <td>{{ payment.payment_date|date:"d-m-Y H:i" }}</td>
+                        <td>{{ payment.get_base_collected|currency }}</td>
+                        <td>{{ payment.get_penalty_collected|currency }}</td>
+                        <td class="fw-semibold">{{ payment.get_total_collected|currency }}</td>
+                        <td>{{ payment.loan.due_date|date:"d M Y" }}</td>
+                        <td>{{ payment.grace_days_used|default:payment.loan.grace_days }}</td>
+                        <td>{{ payment.payment_date|date:"d M Y H:i" }}</td>
                         <td>{{ payment.payment_method }}</td>
                         <td>{{ payment.transaction_id|default:"-" }}</td>
                     </tr>
                     {% empty %}
-                    <tr><td colspan="5" class="text-center">No loan payments made yet.</td></tr>
+                    <tr><td colspan="9" class="text-center">No loan payments made yet.</td></tr>
                     {% endfor %}
                 </tbody>
             </table>

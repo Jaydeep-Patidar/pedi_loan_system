@@ -7,7 +7,13 @@
     
     <div class="card mb-3">
         <div class="card-body">
-            <p class="text-muted mb-0"><strong>Info:</strong> These are final pedi settlement withdrawal requests. Members can only withdraw their pedi payment history minus any penalties/fines.</p>
+            <p class="text-muted mb-2"><strong>Info:</strong> Final pedi settlement requests. Members must close all loans, clear pedi dues, and exit all pedis before requesting.</p>
+            <div class="d-flex flex-wrap gap-2">
+                <span class="badge bg-warning">Pending: {{ status_counts.Pending }}</span>
+                <span class="badge bg-info">Under Review: {{ status_counts.Approved }}</span>
+                <span class="badge bg-danger">Rejected: {{ status_counts.Rejected }}</span>
+                <span class="badge bg-success">Withdrawn: {{ status_counts.Withdrawn }}</span>
+            </div>
         </div>
     </div>
     
@@ -21,7 +27,7 @@
                     <select name="status" class="form-control">
                         <option value="">All Status</option>
                         <option value="Pending" {% if status_filter == 'Pending' %}selected{% endif %}>Pending</option>
-                        <option value="Approved" {% if status_filter == 'Approved' %}selected{% endif %}>Approved</option>
+                        <option value="Approved" {% if status_filter == 'Approved' %}selected{% endif %}>Under Review</option>
                         <option value="Rejected" {% if status_filter == 'Rejected' %}selected{% endif %}>Rejected</option>
                         <option value="Withdrawn" {% if status_filter == 'Withdrawn' %}selected{% endif %}>Withdrawn</option>
                     </select>
@@ -42,22 +48,27 @@
                         <th>ID</th>
                         <th>Member</th>
                         <th>Amount</th>
+                        <th>Loan</th>
+                        <th>Pedi Dues</th>
                         <th>Status</th>
                         <th>Created</th>
                         <th>Action</th>
                     </tr>
                 </thead>
                 <tbody>
-                    {% for wr in requests %}
+                    {% for item in enriched_requests %}
+                    {% with wr=item.request snap=item.snapshot %}
                     <tr>
                         <td>#{{ wr.id }}</td>
                         <td>{{ wr.member.user.get_full_name }}</td>
                         <td>₹ {{ wr.requested_amount|floatformat:2 }}</td>
+                        <td><small>{{ snap.loan_status }}</small></td>
+                        <td><small>{{ snap.pending_pedi_count }} pending</small></td>
                         <td>
                             {% if wr.status == 'Pending' %}
                                 <span class="badge bg-warning">Pending</span>
                             {% elif wr.status == 'Approved' %}
-                                <span class="badge bg-info">Approved</span>
+                                <span class="badge bg-info">Under Review</span>
                             {% elif wr.status == 'Rejected' %}
                                 <span class="badge bg-danger">Rejected</span>
                             {% elif wr.status == 'Withdrawn' %}
@@ -69,6 +80,7 @@
                             <a href="{% url 'withdrawal_admin_detail' wr.id %}" class="btn btn-sm btn-primary">View</a>
                         </td>
                     </tr>
+                    {% endwith %}
                     {% endfor %}
                 </tbody>
             </table>

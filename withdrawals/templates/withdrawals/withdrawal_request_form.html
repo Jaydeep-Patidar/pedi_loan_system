@@ -10,12 +10,44 @@
             {% if not can_withdraw %}
             <div class="alert alert-danger">
                 <h5>You are not eligible for withdrawal</h5>
-                <ul>
+                <ul class="mb-0">
                     {% for error in errors %}
                     <li>{{ error }}</li>
                     {% endfor %}
                 </ul>
             </div>
+            {% if eligibility %}
+            <div class="card mb-4">
+                <div class="card-header"><h6 class="mb-0">Eligibility Checklist</h6></div>
+                <div class="card-body">
+                    <ul class="list-group list-group-flush">
+                        <li class="list-group-item d-flex justify-content-between">
+                            <span>All loans closed</span>
+                            {% if eligibility.loan.ok %}<span class="badge bg-success">Yes</span>{% else %}<span class="badge bg-danger">No</span>{% endif %}
+                        </li>
+                        <li class="list-group-item d-flex justify-content-between">
+                            <span>All pedi dues cleared</span>
+                            {% if eligibility.pedi_payments.ok %}<span class="badge bg-success">Yes</span>{% else %}<span class="badge bg-danger">No</span>{% endif %}
+                        </li>
+                        <li class="list-group-item d-flex justify-content-between">
+                            <span>Pedi memberships settled (Exited/Completed)</span>
+                            {% if eligibility.pedi_memberships.ok %}<span class="badge bg-success">Yes</span>{% else %}<span class="badge bg-danger">No</span>{% endif %}
+                        </li>
+                        <li class="list-group-item d-flex justify-content-between">
+                            <span>No pending exit request</span>
+                            {% if not eligibility.has_pending_exit %}<span class="badge bg-success">Yes</span>{% else %}<span class="badge bg-danger">Pending</span>{% endif %}
+                        </li>
+                        <li class="list-group-item d-flex justify-content-between">
+                            <span>No open withdrawal request</span>
+                            {% if not eligibility.open_withdrawal_request %}<span class="badge bg-success">Yes</span>{% else %}<span class="badge bg-danger">Submitted</span>{% endif %}
+                        </li>
+                    </ul>
+                    {% if snapshot %}
+                    <p class="small text-muted mt-2 mb-0">Loan: {{ snapshot.loan_status }} · Pedi: {{ snapshot.pedi_status }}</p>
+                    {% endif %}
+                </div>
+            </div>
+            {% endif %}
             {% else %}
             <div class="card mb-4">
                 <div class="card-header">
@@ -24,12 +56,18 @@
                 <div class="card-body">
                     <table class="table table-sm">
                         <tr>
-                            <td><strong>Total Pedi Payments (Received):</strong></td>
-                            <td class="text-end">₹ {{ calculation.total_pedi_paid|floatformat:2 }}</td>
+                            <td><strong>Pedi Contributions Paid{% if calculation.since_last_withdrawal %} (since last withdrawal){% endif %}:</strong></td>
+                            <td class="text-end">₹ {{ calculation.total_contribution_paid|floatformat:2 }}</td>
                         </tr>
+                        {% if calculation.penalties_already_paid > 0 %}
                         <tr>
-                            <td><strong>Pedi Penalties/Fines:</strong></td>
-                            <td class="text-end text-danger">- ₹ {{ calculation.total_pedi_penalties|floatformat:2 }}</td>
+                            <td><strong>Penalties Already Paid</strong> <small class="text-muted">(not refunded)</small></td>
+                            <td class="text-end text-muted">₹ {{ calculation.penalties_already_paid|floatformat:2 }}</td>
+                        </tr>
+                        {% endif %}
+                        <tr>
+                            <td><strong>Unpaid Penalties/Fines Due:</strong></td>
+                            <td class="text-end text-danger">- ₹ {{ calculation.unpaid_penalties_due|floatformat:2 }}</td>
                         </tr>
                         <tr class="table-success fw-bold">
                             <td><strong>Final Withdrawable Amount:</strong></td>
@@ -46,7 +84,7 @@
                 <div class="card-body">
                     {% if has_pending_withdrawal %}
                     <div class="alert alert-warning">
-                        You already have a pending withdrawal request. You cannot submit another request until the current one is approved or rejected.
+                        Withdrawal request already submitted. You cannot submit another until it is approved, rejected, or completed.
                         <br>
                         <a href="{% url 'withdrawal_requests_list' %}">View My Withdrawal Requests</a>
                     </div>

@@ -124,6 +124,7 @@ class PediForm(forms.ModelForm):
             'name',
             'duration_months',
             'monthly_amount',
+            'monthly_due_day',
             'start_date',
             'is_active',
             'penalty_enabled',
@@ -141,6 +142,7 @@ class PediForm(forms.ModelForm):
 
 
     LOCKED_MESSAGE = "Financial settings cannot be modified after members or payments are created for this pedi."
+
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -168,10 +170,11 @@ class PediForm(forms.ModelForm):
         if self.instance and self.instance.pk and getattr(self, 'financial_locked', False):
             # Ensure locked financial fields are not changed (backend enforcement)
             locked_fields = [
-                'monthly_amount', 'duration_months', 'start_date',
+                'monthly_amount', 'duration_months', 'monthly_due_day', 'start_date',
                 'penalty_enabled', 'grace_days', 'enable_late_fee_per_day', 'late_fee_per_day',
                 'enable_fixed_penalty', 'fixed_penalty_amount', 'enable_percentage_penalty', 'percentage_penalty_rate'
             ]
+
             for field in locked_fields:
                 if field in cleaned_data:
                     new_val = cleaned_data.get(field)

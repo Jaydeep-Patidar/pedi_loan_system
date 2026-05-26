@@ -13,8 +13,10 @@ from .services import (
     calculate_withdrawal_amount,
     can_member_withdraw,
     create_withdrawal_request,
+    get_member_withdrawal_snapshot,
+    has_open_withdrawal_request,
     has_pending_withdrawal,
-    process_withdrawal_payment,
+    process_withdrawal_payment as complete_withdrawal_payment,
     reject_withdrawal_request,
 )
 
@@ -23,14 +25,16 @@ from .services import (
 @member_required
 def request_withdrawal(request):
     member = request.user.member_profile
-    can_withdraw, errors = can_member_withdraw(member)
-    calc = calculate_withdrawal_amount(member) if can_withdraw else {}
-    has_pending = has_pending_withdrawal(member)
+    snapshot = get_member_withdrawal_snapshot(member)
+    can_withdraw = snapshot['can_withdraw']
+    errors = snapshot['errors']
+    calc = snapshot['calculation']
+    has_open = has_open_withdrawal_request(member)
 
     if request.method == 'POST':
         form = WithdrawalRequestForm(request.POST)
-        if has_pending:
-            messages.error(request, 'You already have a pending withdrawal request. You cannot submit another request until it is resolved.')
+        if has_open:
+            messages.error(request, 'Withdrawal request already submitted.')
         elif form.is_valid():
             remarks = form.cleaned_data.get('remarks', '')
             wr, errors = create_withdrawal_request(member, remarks=remarks)
@@ -51,7 +55,9 @@ def request_withdrawal(request):
         'can_withdraw': can_withdraw,
         'errors': errors,
         'calculation': calc,
-        'has_pending_withdrawal': has_pending,
+        'has_pending_withdrawal': has_open,
+        'eligibility': snapshot['eligibility'],
+        'snapshot': snapshot,
     }
     return render(request, 'withdrawals/withdrawal_request_form.html', context)
 
@@ -102,11 +108,23 @@ def withdrawal_requests_admin_list(request):
 
     page_obj = paginate_queryset(request, requests, default_per_page=15)
 
+    enriched = []
+    for wr in page_obj:
+        snap = get_member_withdrawal_snapshot(wr.member)
+        enriched.append({'request': wr, 'snapshot': snap})
+
     context = {
         'requests': page_obj,
+        'enriched_requests': enriched,
         'page_obj': page_obj,
         'status_filter': status_filter,
         'search_term': search_term,
+        'status_counts': {
+            'Pending': WithdrawalRequest.objects.filter(status='Pending').count(),
+            'Approved': WithdrawalRequest.objects.filter(status='Approved').count(),
+            'Rejected': WithdrawalRequest.objects.filter(status='Rejected').count(),
+            'Withdrawn': WithdrawalRequest.objects.filter(status='Withdrawn').count(),
+        },
     }
     return render(request, 'withdrawals/withdrawal_admin_list.html', context)
 
@@ -115,12 +133,13 @@ def withdrawal_requests_admin_list(request):
 @admin_required
 def withdrawal_admin_detail(request, pk):
     wr = get_object_or_404(WithdrawalRequest, pk=pk)
-    calc = calculate_withdrawal_amount(wr.member)
+    snapshot = get_member_withdrawal_snapshot(wr.member)
     withdrawal = Withdrawal.objects.filter(withdrawal_request=wr).first()
 
     context = {
         'request_obj': wr,
-        'calculation': calc,
+        'calculation': snapshot['calculation'],
+        'snapshot': snapshot,
         'withdrawal': withdrawal,
     }
     return render(request, 'withdrawals/withdrawal_admin_detail.html', context)
@@ -147,9 +166,12 @@ def approve_withdrawal(request, pk):
     else:
         form = WithdrawalApprovalForm()
 
+    snap = get_member_withdrawal_snapshot(wr.member)
     context = {
         'request_obj': wr,
         'form': form,
+        'calculation': snap['calculation'],
+        'snapshot': snap,
     }
     return render(request, 'withdrawals/withdrawal_approve_form.html', context)
 
@@ -189,11 +211,11 @@ def process_withdrawal_payment(request, pk):
         payment_method = request.POST.get('payment_method', 'Cash')
         transaction_reference = request.POST.get('transaction_reference', '')
         notes = request.POST.get('notes', '')
-        success, msg = process_withdrawal_payment(
+        success, msg = complete_withdrawal_payment(
             withdrawal,
             payment_method=payment_method,
             transaction_reference=transaction_reference,
-            notes=notes
+            notes=notes,
         )
         if success:
             messages.success(request, msg)
@@ -237,7 +259,11 @@ def withdrawal_admin_list(request):
 @login_required
 def withdrawal_receipt(request, pk):
     withdrawal = get_object_or_404(Withdrawal, pk=pk)
-    if request.user != withdrawal.processed_by and request.user.member_profile != withdrawal.member:
+    allowed = withdrawal.processed_by_id == request.user.id
+    if not allowed and hasattr(request.user, 'member_profile'):
+        profile = request.user.member_profile
+        allowed = profile.role == 'admin' or profile.id == withdrawal.member_id
+    if not allowed:
         messages.error(request, 'You do not have permission to view this receipt.')
         return redirect('dashboard')
 

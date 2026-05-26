@@ -2,28 +2,73 @@
 {% load custom_filters %}
 {% block content %}
 <div class="row justify-content-center">
-    <div class="col-md-6">
-        <div class="card">
+    <div class="col-md-7 col-lg-6">
+        <div class="card shadow-sm">
             <div class="card-header bg-primary text-white">
-                <h4>Pay Loan Online</h4>
+                <h4 class="mb-0">Pay Loan Online</h4>
             </div>
             <div class="card-body">
                 <p><strong>Loan Amount:</strong> {{ loan.amount|currency }}</p>
-                <p><strong>Interest Rate:</strong> {{ loan.interest_rate }}%</p>
-                <p><strong>Total Payable:</strong> {{ loan.total_payable|currency }}</p>
-                <p><strong>Already Paid:</strong> {{ loan.paid_amount|currency }}</p>
-                <p><strong>Remaining Due:</strong> <span class="text-danger">{{ loan.remaining_due|currency }}</span></p>
-                <form method="post">
+                <p><strong>Total Payable (EMI):</strong> {{ loan.total_payable|currency }}</p>
+                <p><strong>Already Paid (EMI):</strong> {{ loan.paid_amount|currency }}</p>
+                <p><strong>Remaining EMI Due:</strong> <span class="text-danger">{{ loan.remaining_due|currency }}</span></p>
+
+                <div class="border rounded p-3 mb-3 bg-light" id="paymentPreview">
+                    <h6 class="mb-3">Payment Breakdown</h6>
+                    <div class="d-flex justify-content-between"><span>Due Date</span><strong>{{ breakdown.due_date|date:"d M Y" }}</strong></div>
+                    <div class="d-flex justify-content-between"><span>Grace Days</span><strong>{{ breakdown.grace_days }}</strong></div>
+                    <div class="d-flex justify-content-between"><span>EMI / Principal+Interest Portion</span><strong id="previewBase">{{ breakdown.base_amount|currency }}</strong></div>
+                    <div class="d-flex justify-content-between">
+                        <span>Penalty{% if breakdown.penalty_amount > 0 %} <small class="text-danger">(overdue)</small>{% endif %}</span>
+                        <strong id="previewPenalty" class="{% if breakdown.penalty_amount > 0 %}text-danger{% endif %}">{{ breakdown.penalty_amount|currency }}</strong>
+                    </div>
+                    <hr class="my-2">
+                    <div class="d-flex justify-content-between fs-5">
+                        <span>Final Payable</span>
+                        <strong class="text-primary" id="previewTotal">{{ breakdown.final_payable|currency }}</strong>
+                    </div>
+                </div>
+
+                <form method="post" id="loanPayForm">
                     {% csrf_token %}
                     <div class="mb-3">
-                        <label class="form-label">Amount to Pay (₹)</label>
-                        <input type="number" name="amount" step="0.01" min="0.01" max="{{ loan.remaining_due }}" class="form-control" required>
+                        <label class="form-label">EMI Amount to Pay (₹)</label>
+                        <input type="number" name="amount" id="baseAmountInput" step="0.01" min="0.01"
+                               max="{{ loan.remaining_due }}" class="form-control"
+                               value="{{ breakdown.base_amount }}" required>
+                        <small class="text-muted">Max EMI portion: {{ loan.remaining_due|currency }}. Penalty is added automatically.</small>
                     </div>
-                    <button type="submit" class="btn btn-success w-100">Proceed to Pay</button>
+                    <button type="submit" class="btn btn-success w-100" id="payBtn">Proceed to Pay with Razorpay</button>
                 </form>
                 <a href="{% url 'member_loans' %}" class="btn btn-secondary w-100 mt-2">Cancel</a>
             </div>
         </div>
     </div>
 </div>
+<script>
+(function () {
+    const penaltyFixed = {{ breakdown.penalty_amount }};
+    const remainingDue = {{ loan.remaining_due }};
+    const input = document.getElementById('baseAmountInput');
+    const previewBase = document.getElementById('previewBase');
+    const previewTotal = document.getElementById('previewTotal');
+
+    function formatCurrency(n) {
+        return '₹' + Number(n).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    }
+
+    input.addEventListener('input', function () {
+        let base = parseFloat(input.value) || 0;
+        if (base > remainingDue) base = remainingDue;
+        const total = base + penaltyFixed;
+        previewBase.textContent = formatCurrency(base);
+        previewTotal.textContent = formatCurrency(total);
+    });
+
+    document.getElementById('loanPayForm').addEventListener('submit', function () {
+        document.getElementById('payBtn').disabled = true;
+        document.getElementById('payBtn').innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Opening Razorpay...';
+    });
+})();
+</script>
 {% endblock %}

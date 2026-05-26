@@ -2,22 +2,47 @@
 {% load custom_filters %}
 {% block content %}
 <div class="row justify-content-center">
-    <div class="col-md-6">
-        <div class="card">
+    <div class="col-md-7 col-lg-6">
+        <div class="card shadow-sm">
             <div class="card-header bg-primary text-white">
-                <h4>Make Payment</h4>
+                <h4 class="mb-0">Make Payment</h4>
             </div>
             <div class="card-body">
                 <p><strong>Pedi:</strong> {{ payment.pedi.name }}</p>
                 <p><strong>Month/Year:</strong> {{ payment.month }}/{{ payment.year }}</p>
-                <p><strong>Amount:</strong> {{ payment.amount|currency }}</p>
-                <form method="post">
+
+                <div class="border rounded p-3 mb-3 bg-light">
+                    <h6 class="mb-3">Payment Breakdown</h6>
+                    <div class="d-flex justify-content-between"><span>Base Amount</span><strong>{{ breakdown.base_amount|currency }}</strong></div>
+                    <div class="d-flex justify-content-between"><span>Due Date</span><strong>{{ breakdown.due_date|date:"d M Y" }}</strong></div>
+                    <div class="d-flex justify-content-between"><span>Grace Days</span><strong>{{ breakdown.grace_days }}</strong></div>
+                    <div class="d-flex justify-content-between">
+                        <span>Penalty{% if breakdown.penalty_amount > 0 %} <small class="text-danger">(overdue)</small>{% endif %}</span>
+                        <strong class="{% if breakdown.penalty_amount > 0 %}text-danger{% endif %}">{{ breakdown.penalty_amount|currency }}</strong>
+                    </div>
+                    <hr class="my-2">
+                    <div class="d-flex justify-content-between fs-5">
+                        <span>Final Payable</span>
+                        <strong class="text-primary">{{ breakdown.final_payable|currency }}</strong>
+                    </div>
+                </div>
+
+                <form method="post" id="razorpayStartForm">
                     {% csrf_token %}
-                    <button type="submit" class="btn btn-success w-100">Proceed to Pay with Razorpay</button>
+                    <button type="submit" class="btn btn-success w-100" id="payBtn">
+                        Proceed to Pay with Razorpay
+                    </button>
                 </form>
                 <a href="{% url 'member_payments' %}" class="btn btn-secondary w-100 mt-2">Cancel</a>
             </div>
         </div>
     </div>
 </div>
+<script>
+document.getElementById('razorpayStartForm').addEventListener('submit', function () {
+    const btn = document.getElementById('payBtn');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Opening Razorpay...';
+});
+</script>
 {% endblock %}

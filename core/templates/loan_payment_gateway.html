@@ -1,4 +1,5 @@
 {% extends 'base.html' %}
+{% load custom_filters %}
 {% block extra_js %}
 <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
 {{ loan_payment_data|json_script:"loan-payment-data" }}
@@ -10,7 +11,7 @@
             amount: data.amount_paise,
             currency: "INR",
             name: "Pedi Loan System",
-            description: "Loan Payment",
+            description: "Loan Payment (EMI + Penalty)",
             order_id: data.razorpay_order_id,
             handler: function(response) {
                 var form = document.createElement('form');
@@ -28,8 +29,14 @@
                     input.value = value;
                     form.appendChild(input);
                 }
+                document.getElementById('gatewayStatus').textContent = 'Verifying payment...';
                 document.body.appendChild(form);
                 form.submit();
+            },
+            modal: {
+                ondismiss: function() {
+                    document.getElementById('gatewayStatus').textContent = 'Payment cancelled.';
+                }
             },
             theme: { color: "#007bff" }
         };
@@ -39,8 +46,12 @@
 </script>
 {% endblock %}
 {% block content %}
-<div class="text-center">
-    <div class="spinner-border text-primary" role="status"><span class="visually-hidden">Loading...</span></div>
-    <p>Redirecting to payment gateway...</p>
+<div class="text-center py-5">
+    <div class="spinner-border text-primary mb-3" role="status"><span class="visually-hidden">Loading...</span></div>
+    <p id="gatewayStatus">Opening Razorpay payment gateway...</p>
+    {% if breakdown %}
+    <p class="text-muted small">Paying {{ breakdown.final_payable|currency }} (EMI {{ breakdown.base_amount|currency }} + Penalty {{ breakdown.penalty_amount|currency }})</p>
+    {% endif %}
+    <a href="{% url 'member_loans' %}" class="btn btn-outline-secondary btn-sm">Back to My Loans</a>
 </div>
 {% endblock %}

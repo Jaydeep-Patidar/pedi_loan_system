@@ -27,7 +27,7 @@
                                         {% if request_obj.status == 'Pending' %}
                                             <span class="badge bg-warning">Pending</span>
                                         {% elif request_obj.status == 'Approved' %}
-                                            <span class="badge bg-info">Approved</span>
+                                            <span class="badge bg-info">Under Review</span>
                                         {% elif request_obj.status == 'Rejected' %}
                                             <span class="badge bg-danger">Rejected</span>
                                         {% elif request_obj.status == 'Withdrawn' %}
@@ -48,20 +48,43 @@
                     
                     <div class="card mb-4">
                         <div class="card-header">
-                            <h5>Pedi Withdrawal Calculation</h5>
+                            <h5>Member Eligibility &amp; Calculation</h5>
                         </div>
                         <div class="card-body">
+                            {% if snapshot %}
+                            <div class="row mb-3 small">
+                                <div class="col-md-6"><strong>Loan status:</strong> {{ snapshot.loan_status }}</div>
+                                <div class="col-md-6"><strong>Pedi memberships:</strong> {{ snapshot.pedi_status }}</div>
+                                <div class="col-md-6"><strong>Total contribution (all time):</strong> {{ snapshot.total_contribution|currency }}</div>
+                                <div class="col-md-6"><strong>Total penalties paid:</strong> {{ snapshot.total_penalties_paid|currency }}</div>
+                                <div class="col-md-6"><strong>Pending pedi payments:</strong> {{ snapshot.pending_pedi_count }}</div>
+                                <div class="col-md-6"><strong>Eligible now:</strong>
+                                    {% if snapshot.can_withdraw %}<span class="text-success">Yes</span>{% else %}<span class="text-danger">No</span>{% endif %}
+                                </div>
+                            </div>
+                            {% if snapshot.errors %}
+                            <div class="alert alert-warning py-2 small">
+                                <ul class="mb-0">{% for e in snapshot.errors %}<li>{{ e }}</li>{% endfor %}</ul>
+                            </div>
+                            {% endif %}
+                            {% endif %}
                             <table class="table table-sm">
                                 <tr>
-                                    <td><strong>Total Pedi Payments (Received):</strong></td>
-                                    <td class="text-end">₹ {{ calculation.total_pedi_paid|floatformat:2 }}</td>
+                                    <td><strong>Pedi Contributions Paid{% if calculation.since_last_withdrawal %} (since last withdrawal){% endif %}:</strong></td>
+                                    <td class="text-end">₹ {{ calculation.total_contribution_paid|floatformat:2 }}</td>
                                 </tr>
+                                {% if calculation.penalties_already_paid > 0 %}
                                 <tr>
-                                    <td><strong>Pedi Penalties/Fines:</strong></td>
-                                    <td class="text-end text-danger">- ₹ {{ calculation.total_pedi_penalties|floatformat:2 }}</td>
+                                    <td><strong>Penalties Already Paid</strong> <small class="text-muted">(not refunded)</small></td>
+                                    <td class="text-end text-muted">₹ {{ calculation.penalties_already_paid|floatformat:2 }}</td>
+                                </tr>
+                                {% endif %}
+                                <tr>
+                                    <td><strong>Unpaid Penalties/Fines Due:</strong></td>
+                                    <td class="text-end text-danger">- ₹ {{ calculation.unpaid_penalties_due|floatformat:2 }}</td>
                                 </tr>
                                 <tr class="table-success fw-bold">
-                                    <td><strong>Final Withdrawable Amount:</strong></td>
+                                    <td><strong>Final Withdrawable Amount (current):</strong></td>
                                     <td class="text-end text-success">₹ {{ calculation.withdrawable_amount|floatformat:2 }}</td>
                                 </tr>
                             </table>

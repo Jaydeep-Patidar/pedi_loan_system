@@ -13,8 +13,10 @@
                 </div>
                 <div class="card-body">
                     <p><strong>Member:</strong> {{ request_obj.member.user.get_full_name }}</p>
-                    <p><strong>Pedi Amount Requested:</strong> ₹ {{ request_obj.requested_amount|floatformat:2 }}</p>
-                    <p><strong>Withdrawable Amount:</strong> ₹ {{ calculation.withdrawable_amount|floatformat:2 }}</p>
+                    <p><strong>Amount Requested:</strong> ₹ {{ request_obj.requested_amount|floatformat:2 }}</p>
+                    <p><strong>Contributions (current):</strong> ₹ {{ calculation.total_contribution_paid|floatformat:2 }}</p>
+                    <p><strong>Unpaid Penalties (current):</strong> - ₹ {{ calculation.unpaid_penalties_due|floatformat:2 }}</p>
+                    <p><strong>Withdrawable Amount (current):</strong> ₹ {{ calculation.withdrawable_amount|floatformat:2 }}</p>
                 </div>
             </div>
             

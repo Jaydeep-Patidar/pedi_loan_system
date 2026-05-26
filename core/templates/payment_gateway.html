@@ -1,10 +1,10 @@
 {% extends 'base.html' %}
+{% load custom_filters %}
 {% block extra_js %}
 <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
 {{ payment_data_json|json_script:"payment-data" }}
 <script>
     document.addEventListener("DOMContentLoaded", function() {
-        // Parse the safe JSON data
         const paymentData = JSON.parse(document.getElementById('payment-data').textContent);
         
         var options = {
@@ -43,21 +43,36 @@
                 razorpay_signature.value = response.razorpay_signature;
                 form.appendChild(razorpay_signature);
                 
+                document.getElementById('gatewayStatus').textContent = 'Verifying payment...';
                 document.body.appendChild(form);
                 form.submit();
+            },
+            modal: {
+                ondismiss: function() {
+                    document.getElementById('gatewayStatus').textContent = 'Payment cancelled. You can try again from My Payments.';
+                    document.getElementById('retryLink').classList.remove('d-none');
+                }
             },
             theme: { color: "#007bff" }
         };
         var rzp = new Razorpay(options);
+        rzp.on('payment.failed', function () {
+            document.getElementById('gatewayStatus').textContent = 'Payment failed. Please try again.';
+            document.getElementById('retryLink').classList.remove('d-none');
+        });
         rzp.open();
     });
 </script>
 {% endblock %}
 {% block content %}
-<div class="text-center">
-    <div class="spinner-border text-primary" role="status">
+<div class="text-center py-5">
+    <div class="spinner-border text-primary mb-3" role="status">
         <span class="visually-hidden">Loading...</span>
     </div>
-    <p>Redirecting to payment gateway...</p>
+    <p id="gatewayStatus" class="mb-2">Opening Razorpay payment gateway...</p>
+    {% if breakdown %}
+    <p class="text-muted small">Paying {{ breakdown.final_payable|currency }} (Base {{ breakdown.base_amount|currency }} + Penalty {{ breakdown.penalty_amount|currency }})</p>
+    {% endif %}
+    <a href="{% url 'member_payments' %}" id="retryLink" class="btn btn-outline-secondary btn-sm d-none">Back to My Payments</a>
 </div>
 {% endblock %}

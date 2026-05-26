@@ -2,7 +2,7 @@
 {% load custom_filters %}
 {% block content %}
 <div class="container">
-    <h4>My Payments</h4>
+    <h4 class="mb-3">My Payments</h4>
     <form method="get" class="mb-3 row g-2 align-items-end">
         <div class="col-auto flex-fill">
             <input type="search" name="q" value="{{ search_term|default:'' }}" class="form-control form-control-sm" placeholder="Search Pedi" />
@@ -26,13 +26,13 @@
             <h2 class="accordion-header" id="heading{{ forloop.counter }}">
                 <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapse{{ forloop.counter }}" aria-expanded="false" aria-controls="collapse{{ forloop.counter }}">
                     {{ section.pedi.name }}
-                    <small class="ms-3 text-muted">Total Paid: {{ section.summary.total_paid|currency }} • Pending: {{ section.summary.pending_amount|currency }} • Penalty: {{ section.summary.total_penalty|currency }} • Remaining: {{ section.summary.remaining_payments }}</small>
+                    <small class="ms-3 text-muted">Total Paid: {{ section.summary.total_paid|currency }} • Pending Base: {{ section.summary.pending_amount|currency }} • Pending Penalty: {{ section.summary.total_penalty|currency }} • Unpaid: {{ section.summary.remaining_payments }}</small>
                 </button>
             </h2>
             <div id="collapse{{ forloop.counter }}" class="accordion-collapse collapse" aria-labelledby="heading{{ forloop.counter }}" data-bs-parent="#pediAccordion">
                 <div class="accordion-body">
                     {% if section.membership %}
-                    <div class="mb-3 d-flex justify-content-between align-items-center">
+                    <div class="mb-3 d-flex justify-content-between align-items-center flex-wrap gap-2">
                         <div>
                             <strong>Membership Status:</strong>
                             <span class="badge bg-info">{{ section.membership.status }}</span>
@@ -50,28 +50,37 @@
                     </div>
                     {% endif %}
                     <div class="table-responsive">
-                        <table class="table table-sm">
-                            <thead>
+                        <table class="table table-sm table-bordered">
+                            <thead class="table-light">
                                 <tr>
-                                    <th>Month</th><th>Year</th><th>Amount</th><th>Status</th><th>Due Date</th><th>Penalty</th><th>Overdue Days</th><th>Action</th>
+                                    <th>Month</th>
+                                    <th>Year</th>
+                                    <th>Due Date</th>
+                                    <th>Grace Days</th>
+                                    <th>Base Amount</th>
+                                    <th>Penalty</th>
+                                    <th>Final Payable</th>
+                                    <th>Status</th>
+                                    <th>Action</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 {% for item in section.payments %}
                                 {% with payment=item.payment %}
-                                <tr>
+                                <tr class="{% if item.badge == 'Overdue' %}table-danger{% elif item.badge == 'Paid' %}table-success{% endif %}">
                                     <td>{{ payment.month }}</td>
                                     <td>{{ payment.year }}</td>
-                                    <td>{{ payment.amount|currency }}</td>
-                                    <td><span class="badge {{ item.badge_class }}">{{ item.badge }}</span></td>
                                     <td>{{ payment.get_due_date|date:"d-m-Y" }}</td>
-                                    <td>{{ item.penalty|default:0|currency }}</td>
-                                    <td>{{ item.overdue_days|default:0 }}</td>
+                                    <td>{{ item.grace_days }}</td>
+                                    <td>{{ payment.amount|currency }}</td>
+                                    <td>{{ item.penalty|currency }}</td>
+                                    <td class="fw-semibold">{{ item.final_payable|currency }}</td>
+                                    <td><span class="badge {{ item.badge_class }}">{{ item.badge }}</span></td>
                                     <td>
                                         {% if item.badge == 'Pending' or item.badge == 'Overdue' %}
                                             <a href="{% url 'make_payment' payment.id %}" class="btn btn-sm btn-primary">Pay Now</a>
                                         {% else %}
-                                            <a href="#" class="text-muted">Receipt</a>
+                                            <span class="text-muted small">Paid</span>
                                         {% endif %}
                                     </td>
                                 </tr>

@@ -11,12 +11,14 @@
             <button type="submit" class="btn btn-primary btn-sm">Search</button>
         </form>
         <div class="table-responsive">
-            <table class="table table-bordered table-striped">
-                <thead>
+            <table class="table table-bordered table-striped table-sm">
+                <thead class="table-light">
                     <tr>
                         <th>Member</th>
                         <th>Loan ID</th>
-                        <th>Amount</th>
+                        <th>EMI Paid</th>
+                        <th>Penalty Paid</th>
+                        <th>Total Paid</th>
                         <th>Payment Date</th>
                         <th>Method</th>
                         <th>Transaction ID</th>
@@ -27,13 +29,15 @@
                     <tr>
                         <td>{{ payment.loan.member.user.get_full_name }}</td>
                         <td>#{{ payment.loan.id }}</td>
-                        <td>{{ payment.amount|currency }}</td>
+                        <td>{{ payment.get_base_collected|currency }}</td>
+                        <td>{{ payment.get_penalty_collected|currency }}</td>
+                        <td class="fw-semibold">{{ payment.get_total_collected|currency }}</td>
                         <td>{{ payment.payment_date|date:"d-m-Y H:i" }}</td>
                         <td>{{ payment.payment_method }}</td>
                         <td>{{ payment.transaction_id|default:"-" }}</td>
                     </tr>
                     {% empty %}
-                    <tr><td colspan="6" class="text-center">No loan payments recorded.</td></tr>
+                    <tr><td colspan="8" class="text-center">No loan payments recorded.</td></tr>
                     {% endfor %}
                 </tbody>
             </table>

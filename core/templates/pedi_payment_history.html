@@ -2,8 +2,8 @@
 {% load custom_filters %}
 {% block content %}
 <div class="card">
-    <div class="card-header d-flex justify-content-between align-items-center">
-        <h4>{{ selected_pedi.name }} Payment History</h4>
+    <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+        <h4 class="mb-0">{{ selected_pedi.name }} Payment History</h4>
         <a href="{% url 'pedi_payment_history_menu' %}" class="btn btn-secondary btn-sm">Back to Pedi Payment History</a>
     </div>
     <div class="card-body">
@@ -12,31 +12,65 @@
             <button type="submit" class="btn btn-primary btn-sm">Search</button>
         </form>
         <div class="table-responsive">
-            <table class="table table-bordered table-striped">
-                <thead>
+            <table class="table table-bordered table-striped table-sm">
+                <thead class="table-light">
                     <tr>
                         <th>Member</th>
                         <th>Month/Year</th>
-                        <th>Amount</th>
+                        <th>Base Amount</th>
+                        <th>Penalty Paid</th>
+                        <th>Total Paid</th>
+                        <th>Due Date</th>
+                        <th>Grace Days</th>
                         <th>Status</th>
-                        <th>Payment Date</th>
+                        <th>Paid On</th>
                         <th>Method</th>
                         <th>Transaction ID</th>
                     </tr>
                 </thead>
                 <tbody>
                     {% for payment in payments %}
-                    <tr>
+                    <tr class="{% if payment.status == 'Paid' %}table-success{% elif payment.get_effective_overdue_status == 'Overdue' %}table-danger{% endif %}">
                         <td>{{ payment.member.user.get_full_name }}</td>
                         <td>{{ payment.month }}/{{ payment.year }}</td>
-                        <td>{{ payment.amount|currency }}</td>
-                        <td>{% if payment.status == 'Paid' %}<span class="badge bg-success">Paid</span>{% else %}<span class="badge bg-danger">Pending</span>{% endif %}</td>
-                        <td>{% if payment.payment_date %}{{ payment.payment_date|date:"d-m-Y H:i" }}{% else %}-{% endif %}</td>
-                        <td>{{ payment.payment_method }}</td>
+                        <td>
+                            {% if payment.status == 'Paid' %}
+                                {{ payment.base_amount_paid|default:payment.amount|currency }}
+                            {% else %}
+                                {{ payment.amount|currency }}
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if payment.status == 'Paid' %}
+                                {{ payment.penalty_paid|currency }}
+                            {% else %}
+                                {{ payment.calculate_penalty|currency }}
+                            {% endif %}
+                        </td>
+                        <td class="fw-semibold">
+                            {% if payment.status == 'Paid' %}
+                                {{ payment.get_collected_total|currency }}
+                            {% else %}
+                                {{ payment.get_final_payable_amount|currency }}
+                            {% endif %}
+                        </td>
+                        <td>{{ payment.get_due_date|date:"d M Y" }}</td>
+                        <td>{{ payment.get_display_grace_days }}</td>
+                        <td>
+                            {% if payment.status == 'Paid' %}
+                                <span class="badge bg-success">Paid</span>
+                            {% else %}
+                                {% with eff=payment.get_effective_overdue_status %}
+                                    <span class="badge {% if eff == 'Overdue' %}bg-danger{% else %}bg-warning text-dark{% endif %}">{{ eff }}</span>
+                                {% endwith %}
+                            {% endif %}
+                        </td>
+                        <td>{% if payment.payment_date %}{{ payment.payment_date|date:"d M Y H:i" }}{% else %}-{% endif %}</td>
+                        <td>{{ payment.payment_method|default:"-" }}</td>
                         <td>{{ payment.transaction_id|default:"-" }}</td>
                     </tr>
                     {% empty %}
-                    <tr><td colspan="7" class="text-center">No payment history for this Pedi.</td></tr>
+                    <tr><td colspan="11" class="text-center">No payment history for this Pedi.</td></tr>
                     {% endfor %}
                 </tbody>
             </table>

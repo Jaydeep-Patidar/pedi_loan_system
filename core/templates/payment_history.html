@@ -11,13 +11,17 @@
             <button type="submit" class="btn btn-primary btn-sm">Search</button>
         </form>
         <div class="table-responsive">
-            <table class="table table-bordered table-striped">
-                <thead>
+            <table class="table table-bordered table-striped table-sm">
+                <thead class="table-light">
                     <tr>
                         <th>Pedi</th>
                         <th>Month/Year</th>
-                        <th>Amount</th>
-                        <th>Payment Date</th>
+                        <th>Base Amount</th>
+                        <th>Penalty Paid</th>
+                        <th>Total Paid</th>
+                        <th>Due Date</th>
+                        <th>Grace Days</th>
+                        <th>Paid On</th>
                         <th>Method</th>
                         <th>Transaction ID</th>
                     </tr>
@@ -27,13 +31,17 @@
                     <tr>
                         <td>{{ p.pedi.name }}</td>
                         <td>{{ p.month }}/{{ p.year }}</td>
-                        <td>{{ p.amount|currency }}</td>
-                        <td>{{ p.payment_date|date:"d-m-Y H:i" }}</td>
+                        <td>{{ p.base_amount_paid|default:p.amount|currency }}</td>
+                        <td>{{ p.penalty_paid|currency }}</td>
+                        <td class="fw-semibold">{{ p.get_collected_total|currency }}</td>
+                        <td>{{ p.get_due_date|date:"d M Y" }}</td>
+                        <td>{{ p.get_display_grace_days }}</td>
+                        <td>{{ p.payment_date|date:"d M Y H:i" }}</td>
                         <td>{{ p.payment_method }}</td>
                         <td>{{ p.transaction_id|default:"-" }}</td>
                     </tr>
                     {% empty %}
-                    <tr><td colspan="6" class="text-center">No payment history.</td></tr>
+                    <tr><td colspan="10" class="text-center">No payment history.</td></tr>
                     {% endfor %}
                 </tbody>
             </table>

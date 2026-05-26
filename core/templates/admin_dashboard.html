@@ -14,7 +14,25 @@
             <div class="card text-white bg-warning"><div class="card-body"><h5>Total Pending Withdrawable</h5><h2>{{ total_pending_withdrawable|currency }}</h2></div></div>
         </div>
         <div class="col-md-3 mb-3">
-            <div class="card text-white bg-success"><div class="card-body"><h5>Total Collection</h5><h2>{{ total_collection|currency }}</h2></div></div>
+            <div class="card text-white bg-success"><div class="card-body"><h5>Total Paid (Pedi)</h5><h2>{{ total_collection|currency }}</h2></div></div>
+        </div>
+        <div class="col-md-3 mb-3">
+            <div class="card text-white bg-success"><div class="card-body"><h5>Contribution Collected</h5><h2>{{ total_contribution|currency }}</h2></div></div>
+        </div>
+        <div class="col-md-3 mb-3">
+            <div class="card text-white bg-dark"><div class="card-body"><h5>Total Fine Collected</h5><h2>{{ total_pedi_fine_collected|currency }}</h2></div></div>
+        </div>
+        <div class="col-md-3 mb-3">
+            <div class="card text-white bg-danger"><div class="card-body"><h5>Overdue Payments</h5><h2>{{ overdue_payments_count }}</h2></div></div>
+        </div>
+        <div class="col-md-3 mb-3">
+            <div class="card text-white bg-warning"><div class="card-body"><h5>Pending Exit Requests</h5><h2>{{ request_metrics.pending_exit_count }}</h2></div></div>
+        </div>
+        <div class="col-md-3 mb-3">
+            <div class="card text-white bg-info"><div class="card-body"><h5>Withdrawals Under Review</h5><h2>{{ request_metrics.under_review_withdrawal_count }}</h2></div></div>
+        </div>
+        <div class="col-md-3 mb-3">
+            <div class="card text-white bg-secondary"><div class="card-body"><h5>Rejected Withdrawals</h5><h2>{{ request_metrics.rejected_withdrawal_count }}</h2></div></div>
         </div>
         <div class="col-md-3 mb-3">
             <div class="card text-white bg-info"><div class="card-body"><h5>Total Loan Collection</h5><h2>{{ total_loan_collection|currency }}</h2></div></div>
@@ -55,14 +73,15 @@
                         {% if recent_payments %}
                         <table class="table table-sm">
                             <thead>
-                                <tr><th>Member</th><th>Pedi</th><th>Amount</th><th>Date</th></tr>
+                                <tr><th>Member</th><th>Pedi</th><th>Total Paid</th><th>Penalty</th><th>Date</th></tr>
                             </thead>
                             <tbody>
                                 {% for p in recent_payments %}
                                 <tr>
                                     <td>{{ p.member.user.get_full_name }}</td>
                                     <td>{{ p.pedi.name }}</td>
-                                    <td>{{ p.amount|currency }}</td>
+                                    <td>{{ p.total_paid|default:p.amount|currency }}</td>
+                                    <td>{{ p.penalty_paid|currency }}</td>
                                     <td>{{ p.payment_date|date:"d-m-Y" }}</td>
                                 </tr>
                                 {% endfor %}
@@ -101,6 +120,83 @@
         </div>
     </div>
 
+
+    <div class="row">
+        <div class="col-md-6">
+            <div class="card mb-3">
+                <div class="card-header d-flex justify-content-between">
+                    <span>Pending Exit Requests</span>
+                    <a href="{% url 'pedi_list' %}" class="btn btn-sm btn-outline-primary">Manage Pedis</a>
+                </div>
+                <div class="card-body table-responsive">
+                    {% if pending_exit_requests %}
+                    <table class="table table-sm">
+                        <thead><tr><th>Member</th><th>Pedi</th><th>Requested</th></tr></thead>
+                        <tbody>
+                            {% for mp in pending_exit_requests %}
+                            <tr>
+                                <td>{{ mp.member.user.get_full_name }}</td>
+                                <td>{{ mp.pedi.name }}</td>
+                                <td>{{ mp.member_exit_requested_at|date:"d-m-Y" }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                    {% else %}
+                    <p class="text-muted mb-0">No pending exit requests.</p>
+                    {% endif %}
+                </div>
+            </div>
+            <div class="card">
+                <div class="card-header d-flex justify-content-between">
+                    <span>Pending Withdrawal Requests</span>
+                    <a href="{% url 'withdrawal_requests_admin_list' %}" class="btn btn-sm btn-outline-primary">View All</a>
+                </div>
+                <div class="card-body table-responsive">
+                    {% if pending_withdrawal_requests %}
+                    <table class="table table-sm">
+                        <thead><tr><th>Member</th><th>Amount</th><th>Loan</th><th>Pedi</th></tr></thead>
+                        <tbody>
+                            {% for item in pending_withdrawal_requests %}
+                            <tr>
+                                <td><a href="{% url 'withdrawal_admin_detail' item.request.id %}">{{ item.request.member.user.get_full_name }}</a></td>
+                                <td>{{ item.request.calculated_amount|currency }}</td>
+                                <td><small>{{ item.snapshot.loan_status }}</small></td>
+                                <td><small>{{ item.snapshot.pedi_status|truncatechars:40 }}</small></td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                    {% else %}
+                    <p class="text-muted mb-0">No pending withdrawal requests.</p>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-header">Withdrawals Under Review (Approved)</div>
+                <div class="card-body table-responsive">
+                    {% if under_review_withdrawals %}
+                    <table class="table table-sm">
+                        <thead><tr><th>Member</th><th>Amount</th><th>Created</th></tr></thead>
+                        <tbody>
+                            {% for wr in under_review_withdrawals %}
+                            <tr>
+                                <td><a href="{% url 'withdrawal_admin_detail' wr.id %}">{{ wr.member.user.get_full_name }}</a></td>
+                                <td>{{ wr.calculated_amount|currency }}</td>
+                                <td>{{ wr.created_at|date:"d-m-Y" }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                    {% else %}
+                    <p class="text-muted mb-0">No withdrawals under review.</p>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
 
     <div class="row">
         <div class="col-md-6">

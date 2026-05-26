@@ -1,11 +1,8 @@
-from django.db import models
+from django.db import models, transaction
 from django.contrib.auth.models import User
 from django.utils import timezone
-from datetime import timedelta
-from decimal import Decimal
-from django.core.exceptions import ValidationError
 
-from core.models import Member, MemberPedi, Payment, Loan, LoanPayment
+from core.models import Member, MemberPedi, Payment
 
 
 class WithdrawalRequest(models.Model):
@@ -62,22 +59,43 @@ class Withdrawal(models.Model):
         ordering = ['-created_at']
         db_table = 'core_withdrawal'
 
+    @transaction.atomic
     def mark_completed(self):
         self.status = 'Completed'
         self.processed_at = timezone.now()
-        self.save()
+        self.save(update_fields=['status', 'processed_at', 'payment_method', 'transaction_reference', 'notes'])
 
-        self.member.is_active = False
-        self.member.save()
+        member = Member.objects.select_for_update().get(pk=self.member_id)
+        member.is_active = False
+        member.save(update_fields=['is_active'])
 
-        active_pedis = MemberPedi.objects.filter(member=self.member, status='Active')
-        for mp in active_pedis:
+        member.user.is_active = False
+        member.user.save(update_fields=['is_active'])
+
+        today = timezone.now().date()
+        exit_date = today
+        exit_ts = timezone.now()
+
+        for mp in MemberPedi.objects.select_for_update().filter(member=member).exclude(
+            status__in=('Exited', 'Completed', 'Defaulted')
+        ):
             mp.status = 'Exited'
-            mp.exit_date = timezone.now().date()
-            mp.exit_reason = 'Member withdrew - final settlement'
-            mp.admin_exit_at = timezone.now()
+            mp.exit_date = exit_date
+            if not mp.exit_reason:
+                mp.exit_reason = 'Final settlement withdrawal'
+            mp.admin_exit_at = exit_ts
             mp.admin_exit_reason = 'Final settlement withdrawal'
             mp.save()
+
+        future_payments = Payment.objects.filter(
+            member=member,
+            status='Pending',
+            is_cancelled=False,
+        )
+        for payment in future_payments:
+            if payment.is_future_payment(today=today):
+                payment.is_cancelled = True
+                payment.save(update_fields=['is_cancelled'])
 
     def __str__(self):
         return f"Withdrawal - {self.member.user.get_full_name()} - ₹{self.withdrawal_amount} ({self.status})"

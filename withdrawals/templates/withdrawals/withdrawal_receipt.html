@@ -43,11 +43,11 @@
                         <h6>Pedi Withdrawal Calculation</h6>
                         <table class="table table-sm">
                             <tr>
-                                <td><strong>Total Pedi Payments (Received):</strong></td>
+                                <td><strong>Pedi Contributions Paid:</strong></td>
                                 <td class="text-end">₹ {{ withdrawal.total_paid_amount|floatformat:2 }}</td>
                             </tr>
                             <tr>
-                                <td><strong>Pedi Penalties/Fines Deducted:</strong></td>
+                                <td><strong>Unpaid Penalties/Fines Deducted:</strong></td>
                                 <td class="text-end text-danger">- ₹ {{ withdrawal.total_penalties_paid|floatformat:2 }}</td>
                             </tr>
                             <tr class="table-success fw-bold">

@@ -40,11 +40,14 @@
                         <td>{{ loan.due_date|date:"d-m-Y" }}</td>
                         <td>{% if loan.status == 'Active' %}<span class="badge bg-warning">Active</span>{% else %}<span class="badge bg-success">Closed</span>{% endif %}</td>
                         <td>{{ loan.overdue_days }}</td>
-                        <td>{{ loan.penalty_amount|currency }}</td>
+                        <td>{{ loan.calculate_penalty|currency }}</td>
 
                         <td>
     {% if loan.status == 'Active' %}
         <a href="{% url 'loan_pay_online' loan.id %}" class="btn btn-sm btn-primary">Pay Online</a>
+        {% if loan.calculate_penalty > 0 %}
+        <br><small class="text-danger">+{{ loan.calculate_penalty|currency }} penalty</small>
+        {% endif %}
     {% else %}
         <span class="badge bg-secondary">Closed</span>
     {% endif %}

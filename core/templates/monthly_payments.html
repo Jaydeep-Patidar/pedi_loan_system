@@ -4,6 +4,7 @@
 <div class="card">
     <div class="card-header">
         <h4>Monthly Payments</h4>
+        <p class="mb-0 text-muted small">Mark payments as paid only after confirming the penalty breakdown. Unselected rows stay pending.</p>
     </div>
     <div class="card-body">
         <form method="get" class="row g-3 mb-3">
@@ -31,40 +32,104 @@
         </form>
 
         {% if selected_pedi %}
-        <form method="post">
+        <form method="post" id="monthlyPaymentForm">
             {% csrf_token %}
+            <input type="hidden" name="confirm_payments" id="confirmPaymentsFlag" value="0">
             <div class="table-responsive">
-                <table class="table table-bordered">
-                    <thead>
+                <table class="table table-bordered table-hover align-middle">
+                    <thead class="table-light">
                         <tr>
-                            <th>Member</th><th>Amount</th><th>Status</th><th>Mark Paid</th>
+                            <th>Member</th>
+                            <th>Base Amount</th>
+                            <th>Due Date</th>
+                            <th>Grace Days</th>
+                            <th>Penalty</th>
+                            <th>Final Payable</th>
+                            <th>Status</th>
+                            <th>Mark as Paid</th>
                         </tr>
                     </thead>
                     <tbody>
                         {% for item in payments %}
-                        <tr>
+                        {% with b=item.breakdown %}
+                        <tr class="{% if item.effective_status == 'Overdue' %}table-danger{% elif item.status == 'Paid' %}table-success{% endif %}">
                             <td>{{ item.member.user.get_full_name }}</td>
-                            <td>{{ item.amount|currency }}</td>
-                            <td>{% if item.status == 'Paid' %}<span class="badge bg-success">Paid</span>{% else %}<span class="badge bg-danger">Pending</span>{% endif %}</td>
+                            <td>{{ b.base_amount|currency }}</td>
+                            <td>{{ b.due_date|date:"d M Y" }}</td>
+                            <td>{{ b.grace_days }}</td>
+                            <td>
+                                {% if b.penalty_amount > 0 %}
+                                    <span class="text-danger fw-semibold">{{ b.penalty_amount|currency }}</span>
+                                {% else %}
+                                    {{ b.penalty_amount|currency }}
+                                {% endif %}
+                            </td>
+                            <td class="fw-semibold">{{ b.final_payable|currency }}</td>
+                            <td>
+                                {% if item.status == 'Paid' %}
+                                    <span class="badge bg-success">Paid</span>
+                                {% elif item.effective_status == 'Overdue' %}
+                                    <span class="badge bg-danger">Overdue</span>
+                                {% else %}
+                                    <span class="badge bg-warning text-dark">Pending</span>
+                                {% endif %}
+                            </td>
                             <td>
                                 {% if item.status == 'Pending' %}
-                                <input type="checkbox" name="payment_{{ item.payment.id }}" value="paid">
+                                <input type="checkbox" class="form-check-input mark-paid-checkbox" name="payment_{{ item.payment.id }}" value="paid">
                                 {% else %}
                                 <span class="text-muted">Already Paid</span>
                                 {% endif %}
                             </td>
                         </tr>
+                        {% endwith %}
                         {% empty %}
-                        <tr><td colspan="4">No payment records found for this Pedi and selected month/year.</td></tr>
+                        <tr><td colspan="8" class="text-center">No payment records found for this Pedi and selected month/year.</td></tr>
                         {% endfor %}
                     </tbody>
                 </table>
             </div>
-            <button type="submit" class="btn btn-success">Update Payments</button>
+            {% if payments %}
+            <button type="button" class="btn btn-success" id="confirmPaymentsBtn">
+                Confirm &amp; Mark Selected as Paid
+            </button>
+            {% endif %}
         </form>
         {% else %}
         <p class="text-muted">Select a Pedi to manage monthly payments.</p>
         {% endif %}
     </div>
 </div>
+
+{% if payments %}
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    const form = document.getElementById('monthlyPaymentForm');
+    const confirmBtn = document.getElementById('confirmPaymentsBtn');
+    const confirmFlag = document.getElementById('confirmPaymentsFlag');
+
+    confirmBtn.addEventListener('click', function () {
+        const checked = form.querySelectorAll('.mark-paid-checkbox:checked');
+        if (!checked.length) {
+            alert('Please select at least one payment to mark as paid.');
+            return;
+        }
+        let summary = 'You are about to mark the following payment(s) as PAID:\n\n';
+        checked.forEach(function (cb) {
+            const row = cb.closest('tr');
+            const member = row.cells[0].innerText.trim();
+            const payable = row.cells[5].innerText.trim();
+            summary += '• ' + member + ' — ' + payable + '\n';
+        });
+        summary += '\nThis action cannot be undone. Continue?';
+        if (window.confirm(summary)) {
+            confirmFlag.value = '1';
+            confirmBtn.disabled = true;
+            confirmBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Processing...';
+            form.submit();
+        }
+    });
+});
+</script>
+{% endif %}
 {% endblock %}

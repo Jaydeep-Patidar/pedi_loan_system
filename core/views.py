@@ -4,6 +4,7 @@ from django.contrib.auth.decorators import login_required
 from django.contrib.auth.tokens import default_token_generator
 from django.contrib import messages
 from django.core.mail import send_mail
+from django.db import transaction
 from django.db.models import Sum, Q, Count
 from django.http import HttpResponse
 from django.middleware.csrf import get_token
@@ -30,7 +31,17 @@ from withdrawals.models import WithdrawalRequest, Withdrawal
 from .decorators import admin_required, member_required
 from .authentication import generate_jwt_token, decode_jwt_token
 from .utils import apply_search, apply_status_filter, apply_sorting, paginate_queryset
-from withdrawals.services import can_member_withdraw, calculate_withdrawal_amount, has_pending_withdrawal
+from .utils_payment import get_payment_breakdown, complete_payment
+from .utils_loan_payment import get_loan_payment_breakdown, complete_loan_payment
+from withdrawals.services import (
+    can_member_withdraw,
+    calculate_withdrawal_amount,
+    get_admin_request_metrics,
+    get_member_withdrawal_snapshot,
+    has_open_withdrawal_request,
+    has_pending_withdrawal,
+)
+from withdrawals.eligibility import can_member_request_exit
 from pedi_loan_system.settings import RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET
 
 from datetime import timedelta
@@ -54,8 +65,11 @@ def calculate_available_balance():
         except Exception:
             pass
 
-    total_paid_pedi_collection = Payment.objects.filter(status='Paid', is_cancelled=False).aggregate(total=Sum('amount'))['total'] or Decimal('0.00')
-    total_loan_collection = LoanPayment.objects.aggregate(total=Sum('amount'))['total'] or Decimal('0.00')
+    pedi_totals = Payment.aggregate_paid_totals()
+    total_paid_pedi_collection = pedi_totals['total']
+    total_loan_collection = Decimal('0.00')
+    for lp in LoanPayment.objects.only('amount', 'base_amount_paid', 'penalty_paid', 'total_paid'):
+        total_loan_collection += lp.get_total_collected()
     total_active_loan_due = Loan.objects.filter(status='Active').aggregate(total=Sum('remaining_due'))['total'] or Decimal('0.00')
     total_withdrawn = Withdrawal.objects.filter(status='Completed').aggregate(total=Sum('withdrawal_amount'))['total'] or Decimal('0.00')
     available_amount = total_paid_pedi_collection + total_loan_collection - total_active_loan_due - total_withdrawn
@@ -85,6 +99,8 @@ def generate_member_payments(member, pedi, start_month, start_year, membership_e
     current_date = start_date
     payments = []
     while current_date < generation_end:
+        due_day = min(pedi.monthly_due_day or 1, 28)
+        due_date = date(current_date.year, current_date.month, due_day)
         payment, created = Payment.objects.get_or_create(
             member=member,
             pedi=pedi,
@@ -93,6 +109,7 @@ def generate_member_payments(member, pedi, start_month, start_year, membership_e
             defaults={
                 'amount': pedi.monthly_amount,
                 'status': 'Pending',
+                'due_date': due_date,
                 'penalty_enabled': pedi.penalty_enabled,
                 'grace_days': pedi.grace_days,
                 'enable_late_fee_per_day': pedi.enable_late_fee_per_day,
@@ -103,6 +120,9 @@ def generate_member_payments(member, pedi, start_month, start_year, membership_e
                 'percentage_penalty_rate': pedi.percentage_penalty_rate,
             }
         )
+        if not payment.due_date:
+            payment.due_date = due_date
+            payment.save(update_fields=['due_date'])
         payments.append(payment)
         current_date += relativedelta(months=1)
 
@@ -285,33 +305,48 @@ def dashboard(request):
 @admin_required
 def admin_dashboard(request):
     total_members = Member.objects.filter(role='member', is_active=True).count()
-    total_collection = Payment.objects.filter(status='Paid', is_cancelled=False).aggregate(total=Sum('amount'))['total'] or Decimal('0.00')
-    total_loan_collection = LoanPayment.objects.aggregate(total=Sum('amount'))['total'] or Decimal('0.00')
+    paid_pedi_qs = Payment.objects.filter(status='Paid', is_cancelled=False)
+    pedi_totals = Payment.aggregate_paid_totals(paid_pedi_qs)
+    total_contribution = pedi_totals['contribution']
+    total_pedi_fine_collected = pedi_totals['fine']
+    total_collection = pedi_totals['total']
+    total_loan_collection = Decimal('0.00')
+    total_loan_fine_collected = Decimal('0.00')
+    for lp in LoanPayment.objects.only('amount', 'base_amount_paid', 'penalty_paid', 'total_paid'):
+        total_loan_collection += lp.get_total_collected()
+        total_loan_fine_collected += lp.get_penalty_collected()
     total_loans = Loan.objects.filter(status='Active').aggregate(total=Sum('amount'))['total'] or Decimal('0.00')
     pending_dues = Loan.objects.filter(status='Active').aggregate(total=Sum('remaining_due'))['total'] or Decimal('0.00')
 
     total_loan_profit = Decimal('0.00')
-    total_loan_fine = Decimal('0.00')
+    total_loan_fine_outstanding = Decimal('0.00')
     for loan in Loan.objects.all():
         profit = loan.paid_amount - loan.amount
         if profit > 0:
             total_loan_profit += profit
     for loan in Loan.objects.filter(status='Active'):
-        total_loan_fine += loan.calculate_penalty()
+        total_loan_fine_outstanding += loan.get_outstanding_penalty()
+    total_loan_fine = total_loan_fine_collected + total_loan_fine_outstanding
 
-    total_pedi_fine = Decimal('0.00')
-    for payment in Payment.objects.filter(status='Pending', is_cancelled=False):
-        total_pedi_fine += payment.calculate_penalty()
+    today = timezone.now().date()
+    current_month = today.month
+    current_year = today.year
+    overdue_payments_count = 0
+    for payment in Payment.objects.filter(status='Pending', is_cancelled=False).select_related('pedi'):
+        if (payment.year > current_year) or (payment.year == current_year and payment.month > current_month):
+            continue
+        if payment.get_effective_overdue_status(today=today) == 'Overdue':
+            overdue_payments_count += 1
 
     grand_total_collection = total_collection + total_loan_collection
 
-    current_year = timezone.now().year
     monthly_summary = []
     for month in range(1, 13):
-        amount = Payment.objects.filter(year=current_year, month=month, status='Paid', is_cancelled=False).aggregate(total=Sum('amount'))['total'] or Decimal('0.00')
+        month_payments = paid_pedi_qs.filter(year=current_year, month=month)
+        amount = Payment.aggregate_paid_totals(month_payments)['total']
         monthly_summary.append({'month': month, 'amount': float(amount)})
 
-    recent_payments = Payment.objects.filter(status='Paid', is_cancelled=False).select_related('member', 'pedi').order_by('-payment_date')[:5]
+    recent_payments = paid_pedi_qs.select_related('member', 'pedi').order_by('-payment_date')[:5]
     recent_members = Member.objects.filter(role='member', is_active=True).select_related('user').order_by('-joined_date')[:5]
 
     # Get all members with their payment information
@@ -328,28 +363,38 @@ def admin_dashboard(request):
             'total_paid': total_paid,
             'total_loan_due': total_loan_due,
             'last_payment_date': last_payment.payment_date if last_payment else None,
-            'last_payment_amount': last_payment.amount if last_payment else 0,
+            'last_payment_amount': last_payment.get_collected_total() if last_payment else 0,
         })
 
     context = {
         'total_members': total_members,
         'total_collection': total_collection,
+        'total_contribution': total_contribution,
+        'total_pedi_fine_collected': total_pedi_fine_collected,
+        'overdue_payments_count': overdue_payments_count,
         'total_loan_collection': total_loan_collection,
         'grand_total_collection': grand_total_collection,
         'total_loans': total_loans,
         'pending_dues': pending_dues,
         'total_loan_profit': total_loan_profit,
         'total_loan_fine': total_loan_fine,
-        'total_pedi_fine': total_pedi_fine,
+        'total_loan_fine_collected': total_loan_fine_collected,
         'monthly_summary_json': json.dumps(monthly_summary),
         'recent_payments': recent_payments,
         'recent_members': recent_members,
         'all_members_payments': all_members_payments,
         'current_year': current_year,
-        # Withdrawal metrics
+        # Withdrawal & exit metrics
+        'request_metrics': get_admin_request_metrics(),
         'pending_withdrawals_count': WithdrawalRequest.objects.filter(status='Pending').count(),
         'total_pending_withdrawable': WithdrawalRequest.objects.filter(status='Pending').aggregate(total=Sum('calculated_amount'))['total'] or Decimal('0.00'),
         'recent_withdrawals': Withdrawal.objects.filter(status='Completed').select_related('member').order_by('-processed_at')[:5],
+        'pending_exit_requests': MemberPedi.objects.filter(status='Exit Requested').select_related('member__user', 'pedi')[:10],
+        'pending_withdrawal_requests': [
+            {'request': wr, 'snapshot': get_member_withdrawal_snapshot(wr.member)}
+            for wr in WithdrawalRequest.objects.filter(status='Pending').select_related('member__user')[:10]
+        ],
+        'under_review_withdrawals': WithdrawalRequest.objects.filter(status='Approved').select_related('member__user')[:10],
     }
     return render(request, 'admin_dashboard.html', context)
 
@@ -363,10 +408,9 @@ def member_dashboard(request):
     payments = member.payments.filter(status='Paid', is_cancelled=False).order_by('-payment_date')[:10]
 
     # Withdrawal info for member
-    can_withdraw, withdraw_errors = can_member_withdraw(member)
-    calc = calculate_withdrawal_amount(member)
-    withdrawable_amount = calc.get('withdrawable_amount', Decimal('0.00'))
+    withdrawal_snapshot = get_member_withdrawal_snapshot(member)
     has_pending = has_pending_withdrawal(member)
+    has_open = has_open_withdrawal_request(member)
 
     context = {
         'member': member,
@@ -374,10 +418,12 @@ def member_dashboard(request):
         'total_loan_due': total_loan_due,
         'active_loans': loans,
         'recent_payments': payments,
-        'withdrawable_amount': withdrawable_amount,
-        'can_withdraw': can_withdraw,
-        'withdraw_errors': withdraw_errors,
+        'withdrawable_amount': withdrawal_snapshot['withdrawable_amount'],
+        'can_withdraw': withdrawal_snapshot['can_withdraw'],
+        'withdraw_errors': withdrawal_snapshot['errors'],
         'has_pending_withdrawal': has_pending,
+        'has_open_withdrawal': has_open,
+        'withdrawal_snapshot': withdrawal_snapshot,
     }
 
     return render(request, 'member_dashboard.html', context)
@@ -450,7 +496,10 @@ def member_activate(request, pk):
         member.user.is_active = True
         member.user.save()
         member.save()
-        messages.success(request, 'Member activated successfully')
+        messages.success(
+            request,
+            'Member activated successfully. They can only be assigned to new pedis — closed/exited pedi memberships cannot be rejoined.',
+        )
         return redirect('member_list')
     return render(request, 'confirm_delete.html', {'object': member, 'title': 'Activate Member', 'button_label': 'Yes, Activate'})
 
@@ -557,12 +606,27 @@ def assign_members(request, pedi_id):
         for member_id in selected_members:
             member = Member.objects.get(pk=member_id)
             member_pedi = existing_memberships.get(member_id)
+            if member_pedi and member_pedi.status in ('Exited', 'Completed', 'Defaulted'):
+                messages.warning(
+                    request,
+                    f'{member.user.get_full_name()} cannot rejoin a closed pedi ({pedi.name}). '
+                    'Assign them only to a new pedi.',
+                )
+                continue
             if not member_pedi:
                 member_pedi = MemberPedi.objects.create(
                     member=member,
                     pedi=pedi,
-                    membership_start_date=timezone.now().date()
+                    membership_start_date=timezone.now().date(),
+                    status='Active',
                 )
+            elif member_pedi.status != 'Active':
+                member_pedi.status = 'Active'
+                member_pedi.membership_start_date = timezone.now().date()
+                member_pedi.exit_date = None
+                member_pedi.member_exit_requested_at = None
+                member_pedi.member_exit_request_reason = ''
+                member_pedi.save()
             if member_pedi.status == 'Active':
                 generate_member_payments(
                     member=member,
@@ -670,7 +734,21 @@ def member_pedi_exit_request(request, pedi_id):
         messages.error(request, 'This pedi membership has already been exited.')
         return redirect('member_payments')
 
+    can_exit, exit_errors = can_member_request_exit(member, pedi_id=pedi_id)
+    if not can_exit and membership.status != 'Exit Requested':
+        for err in exit_errors:
+            messages.error(request, err)
+        return redirect('member_payments')
+
     if request.method == 'POST':
+        if has_open_withdrawal_request(member):
+            messages.error(request, 'Cannot submit exit request while a withdrawal request is pending or under review.')
+            return redirect('member_payments')
+        can_exit, exit_errors = can_member_request_exit(member, pedi_id=pedi_id)
+        if not can_exit:
+            for err in exit_errors:
+                messages.error(request, err)
+            return redirect('member_payments')
         request_reason = request.POST.get('request_reason', '')
         membership.status = 'Exit Requested'
         membership.member_exit_requested_at = timezone.now()
@@ -764,27 +842,53 @@ def monthly_payments(request, pedi_id=None):
             year=current_year
         ).filter(is_cancelled=False).select_related('member').order_by('member__user__username')
 
+        today = timezone.now().date()
         for payment in payments_qs:
+            breakdown = get_payment_breakdown(payment, today=today)
             payments.append({
                 'member': payment.member,
                 'payment': payment,
                 'amount': payment.amount,
                 'status': payment.status,
+                'breakdown': breakdown,
+                'effective_status': breakdown['effective_status'],
             })
 
         if request.method == 'POST':
+            if request.POST.get('confirm_payments') != '1':
+                messages.error(request, 'Please confirm payment before marking as paid.')
+                return redirect('monthly_payments', pedi_id=selected_pedi.id)
+
+            selected_ids = []
             for item in payments:
                 payment_id = item['payment'].id
                 if request.POST.get(f'payment_{payment_id}'):
-                    payment = item['payment']
-                    payment.status = 'Paid'
-                    payment.payment_date = timezone.now()
-                    payment.payment_method = 'Cash'
-                    if not payment.transaction_id:
-                        random_suffix = random.randint(1000, 9999)
-                        payment.transaction_id = f'CASH-{timezone.now().strftime("%Y%m%d%H%M%S")}-{random_suffix}'
-                    payment.save()
-            messages.success(request, 'Payments updated successfully')
+                    selected_ids.append(payment_id)
+
+            if not selected_ids:
+                messages.warning(request, 'No payments selected. Check "Mark as Paid" for at least one member.')
+            else:
+                updated_count = 0
+                with transaction.atomic():
+                    for payment_id in selected_ids:
+                        payment = Payment.objects.select_for_update().get(pk=payment_id)
+                        if payment.status == 'Paid':
+                            continue
+                        txn_id = payment.transaction_id
+                        if not txn_id:
+                            random_suffix = random.randint(1000, 9999)
+                            txn_id = f'CASH-{timezone.now().strftime("%Y%m%d%H%M%S")}-{random_suffix}'
+                        complete_payment(
+                            payment,
+                            payment_method='Cash',
+                            transaction_id=txn_id,
+                        )
+                        updated_count += 1
+                if updated_count:
+                    messages.success(request, f'{updated_count} payment(s) marked as paid successfully.')
+                else:
+                    messages.info(request, 'Selected payments were already marked as paid.')
+
             return redirect('monthly_payments', pedi_id=selected_pedi.id)
 
     context = {
@@ -906,27 +1010,51 @@ def admin_loan_pay(request, loan_id):
         messages.warning(request, 'This loan is not active.')
         return redirect('loan_list')
 
+    breakdown = get_loan_payment_breakdown(loan, loan.remaining_due or Decimal('0.00'))
+
     if request.method == 'POST':
-        amount = Decimal(request.POST.get('amount', 0))
-        if amount <= 0:
+        if request.POST.get('confirm_payment') != '1':
+            messages.error(request, 'Please confirm payment after reviewing the penalty breakdown.')
+            return redirect('admin_loan_pay', loan_id=loan.id)
+
+        try:
+            base_amount = Decimal(request.POST.get('amount', '0'))
+        except Exception:
             messages.error(request, 'Please enter a valid amount.')
             return redirect('admin_loan_pay', loan_id=loan.id)
-        if amount > loan.remaining_due:
-            messages.error(request, f'Amount cannot exceed remaining due ({loan.remaining_due}).')
+
+        preview = get_loan_payment_breakdown(loan, base_amount)
+        if preview['final_payable'] <= 0:
+            messages.error(request, 'Payment amount must be greater than zero.')
             return redirect('admin_loan_pay', loan_id=loan.id)
 
-        # Create LoanPayment record
+        remaining = loan.remaining_due or Decimal('0.00')
+        if preview['base_amount'] > remaining and remaining > 0:
+            messages.error(request, f'EMI amount cannot exceed remaining due ({remaining}).')
+            return redirect('admin_loan_pay', loan_id=loan.id)
+
         random_suffix = random.randint(1000, 9999)
-        LoanPayment.objects.create(
-            loan=loan,
-            amount=amount,
+        payment, error = complete_loan_payment(
+            loan,
+            preview['base_amount'],
             payment_method='Cash',
-            transaction_id=f'CASH-{timezone.now().strftime("%Y%m%d%H%M%S")}-{random_suffix}'
+            transaction_id=f'CASH-{timezone.now().strftime("%Y%m%d%H%M%S")}-{random_suffix}',
         )
-        messages.success(request, f'Payment of ₹{amount} recorded successfully for {loan.member.user.get_full_name()}.')
+        if error:
+            messages.error(request, error)
+            return redirect('admin_loan_pay', loan_id=loan.id)
+
+        messages.success(
+            request,
+            f'Payment recorded: EMI {preview["base_amount"]} + penalty {preview["penalty_amount"]} '
+            f'= {payment.get_total_collected()} for {loan.member.user.get_full_name()}.',
+        )
         return redirect('loan_list')
 
-    return render(request, 'admin_loan_pay.html', {'loan': loan})
+    return render(request, 'admin_loan_pay.html', {
+        'loan': loan,
+        'breakdown': breakdown,
+    })
 
 # ---------------------- Member Views for Loans & Payments ----------------------
 @login_required
@@ -981,34 +1109,54 @@ def member_payments(request):
         membership = MemberPedi.objects.filter(member=member, pedi=pedi).first()
         payments_qs = Payment.objects.filter(member=member, pedi=pedi, is_cancelled=False)
 
-        # Only include payments that are Paid OR due/overdue (not future)
+        # Only include payments that are Paid OR due/overdue, but NEVER show future months.
         visible_payments = []
+
         total_paid = Decimal('0.00')
+
         pending_amount = Decimal('0.00')
         total_penalty = Decimal('0.00')
         remaining_payments = 0
 
         for p in payments_qs.order_by('-year', '-month'):
-            # Skip future pending payments
-            if p.status == 'Pending' and (p.year > current_year or (p.year == current_year and p.month > current_month)):
+            # Never show future months (even if due_date is after today).
+            if (p.year > current_year) or (p.year == current_year and p.month > current_month):
                 continue
-            # Skip cancelled or other non-relevant statuses
+
+            breakdown = get_payment_breakdown(p, today=today)
+            penalty = breakdown['penalty_amount']
+            final_payable = breakdown['final_payable']
+            grace_days = breakdown['grace_days']
+
             if p.status == 'Paid':
-                total_paid += p.amount
-                visible_payments.append({'payment': p, 'badge': 'Paid', 'badge_class': 'bg-success'})
-            elif p.status == 'Pending':
-                overdue_days = p.overdue_days()
-                penalty = p.calculate_penalty()
-                if overdue_days > 0:
-                    badge = 'Overdue'
-                    badge_class = 'bg-danger'
-                else:
-                    badge = 'Pending'
-                    badge_class = 'bg-warning'
-                visible_payments.append({'payment': p, 'badge': badge, 'badge_class': badge_class, 'overdue_days': overdue_days, 'penalty': penalty})
+                total_paid += p.get_collected_total()
+                visible_payments.append({
+                    'payment': p,
+                    'badge': 'Paid',
+                    'badge_class': 'bg-success',
+                    'penalty': penalty,
+                    'final_payable': final_payable,
+                    'grace_days': grace_days,
+                    'overdue_days': 0,
+                })
+            else:
+                effective_status = breakdown['effective_status']
+                badge = 'Overdue' if effective_status == 'Overdue' else 'Pending'
+                badge_class = 'bg-danger' if badge == 'Overdue' else 'bg-warning'
+                visible_payments.append({
+                    'payment': p,
+                    'badge': badge,
+                    'badge_class': badge_class,
+                    'overdue_days': breakdown['overdue_days'],
+                    'penalty': penalty,
+                    'final_payable': final_payable,
+                    'grace_days': grace_days,
+                    'status_effective': effective_status,
+                })
                 pending_amount += p.amount
                 total_penalty += penalty
                 remaining_payments += 1
+
 
         if membership:
             pedi_sections.append({
@@ -1061,17 +1209,27 @@ def loan_pay_online(request, loan_id):
         messages.warning(request, 'This loan is already closed.')
         return redirect('member_loans')
 
+    default_base = loan.remaining_due or Decimal('0.00')
+    default_breakdown = get_loan_payment_breakdown(loan, default_base)
+
     if request.method == 'POST':
-        amount = Decimal(request.POST.get('amount', 0))
-        if amount <= 0:
+        try:
+            base_amount = Decimal(request.POST.get('amount', '0'))
+        except Exception:
             messages.error(request, 'Please enter a valid amount.')
             return redirect('loan_pay_online', loan_id=loan.id)
-        if amount > loan.remaining_due:
-            messages.error(request, f'Amount cannot exceed remaining due ({loan.remaining_due}).')
+
+        breakdown = get_loan_payment_breakdown(loan, base_amount)
+        if breakdown['final_payable'] <= 0:
+            messages.error(request, 'Payment amount must be greater than zero.')
             return redirect('loan_pay_online', loan_id=loan.id)
 
-        # Create Razorpay order
-        order_amount = int(amount * 100)
+        remaining = loan.remaining_due or Decimal('0.00')
+        if breakdown['base_amount'] > remaining and remaining > 0:
+            messages.error(request, f'EMI amount cannot exceed remaining due ({remaining}).')
+            return redirect('loan_pay_online', loan_id=loan.id)
+
+        order_amount = int(breakdown['final_payable'] * 100)
         try:
             razorpay_order = client.order.create({
                 'amount': order_amount,
@@ -1080,37 +1238,44 @@ def loan_pay_online(request, loan_id):
                 'notes': {
                     'loan_id': loan.id,
                     'member_id': loan.member.id,
-                    'amount': str(amount)
-                }
+                    'base_amount': str(breakdown['base_amount']),
+                    'penalty_amount': str(breakdown['penalty_amount']),
+                    'total_payable': str(breakdown['final_payable']),
+                },
             })
         except Exception as e:
             messages.error(request, f'Payment gateway error: {str(e)}')
             return redirect('member_loans')
 
-        # Save transaction
         LoanTransaction.objects.create(
             loan=loan,
-            amount=amount,
+            amount=breakdown['final_payable'],
+            base_amount=breakdown['base_amount'],
+            penalty_amount=breakdown['penalty_amount'],
             razorpay_order_id=razorpay_order['id'],
-            status='Created'
+            status='Created',
         )
 
-        # Build JSON data for template
         payment_data = {
             'razorpay_key_id': RAZORPAY_KEY_ID,
             'amount_paise': order_amount,
             'razorpay_order_id': razorpay_order['id'],
             'csrf_token': get_token(request),
             'success_url': request.build_absolute_uri(reverse('loan_payment_online_success')),
+            'base_amount': str(breakdown['base_amount']),
+            'penalty_amount': str(breakdown['penalty_amount']),
+            'total_payable': str(breakdown['final_payable']),
         }
-        context = {
+        return render(request, 'loan_payment_gateway.html', {
             'loan': loan,
             'loan_payment_data': payment_data,
-        }
-        return render(request, 'loan_payment_gateway.html', context)
+            'breakdown': breakdown,
+        })
 
-    # GET request – show payment form
-    return render(request, 'loan_pay_online.html', {'loan': loan})
+    return render(request, 'loan_pay_online.html', {
+        'loan': loan,
+        'breakdown': default_breakdown,
+    })
 
 @login_required
 def loan_payment_online_success(request):
@@ -1119,32 +1284,66 @@ def loan_payment_online_success(request):
         razorpay_order_id = request.POST.get('razorpay_order_id')
         razorpay_signature = request.POST.get('razorpay_signature')
 
+        if not all([razorpay_payment_id, razorpay_order_id, razorpay_signature]):
+            messages.error(request, 'Payment verification failed: missing payment details.')
+            return redirect('member_loans')
+
         params_dict = {
             'razorpay_order_id': razorpay_order_id,
             'razorpay_payment_id': razorpay_payment_id,
-            'razorpay_signature': razorpay_signature
+            'razorpay_signature': razorpay_signature,
         }
 
         try:
             client.utility.verify_payment_signature(params_dict)
-            loan_trans = LoanTransaction.objects.get(razorpay_order_id=razorpay_order_id)
-            loan_trans.razorpay_payment_id = razorpay_payment_id
-            loan_trans.razorpay_signature = razorpay_signature
-            loan_trans.status = 'Success'
-            loan_trans.save()
+        except Exception:
+            messages.error(request, 'Payment verification failed: invalid signature.')
+            return redirect('member_loans')
 
-            # Create LoanPayment record
-            LoanPayment.objects.create(
-                loan=loan_trans.loan,
-                amount=loan_trans.amount,
-                transaction_id=razorpay_payment_id,
-                payment_method='Online'
+        try:
+            with transaction.atomic():
+                loan_trans = LoanTransaction.objects.select_for_update().get(razorpay_order_id=razorpay_order_id)
+                if hasattr(request.user, 'member_profile'):
+                    if loan_trans.loan.member_id != request.user.member_profile.id:
+                        messages.error(request, 'Payment verification failed: unauthorized.')
+                        return redirect('member_loans')
+
+                if loan_trans.status == 'Success':
+                    messages.success(request, 'Loan payment already recorded successfully.')
+                    return redirect('member_loans')
+
+                loan_trans.razorpay_payment_id = razorpay_payment_id
+                loan_trans.razorpay_signature = razorpay_signature
+                loan_trans.status = 'Success'
+                loan_trans.save(update_fields=['razorpay_payment_id', 'razorpay_signature', 'status'])
+
+                base_amount = loan_trans.base_amount or Decimal('0.00')
+                expected = (base_amount + loan_trans.penalty_amount).quantize(Decimal('0.01'))
+                if loan_trans.amount != expected:
+                    raise ValueError('Transaction amount does not match expected payable total.')
+
+                payment, error = complete_loan_payment(
+                    loan_trans.loan,
+                    base_amount,
+                    payment_method='Online',
+                    transaction_id=razorpay_payment_id,
+                )
+                if error:
+                    raise ValueError(error)
+
+            messages.success(
+                request,
+                f'Loan payment successful! Total paid: ₹{payment.get_total_collected()} '
+                f'(EMI ₹{payment.get_base_collected()} + penalty ₹{payment.get_penalty_collected()}).',
             )
-            messages.success(request, f'Loan payment of ₹{loan_trans.amount} successful!')
             return redirect('member_loans')
-        except Exception as e:
-            messages.error(request, f'Payment verification failed: {str(e)}')
-            return redirect('member_loans')
+        except LoanTransaction.DoesNotExist:
+            messages.error(request, 'Payment verification failed: transaction not found.')
+        except ValueError as exc:
+            messages.error(request, f'Payment verification failed: {exc}')
+        except Exception:
+            messages.error(request, 'Payment verification failed. Contact support if amount was deducted.')
+        return redirect('member_loans')
     return redirect('member_loans')
 
 @login_required
@@ -1201,7 +1400,9 @@ def make_payment(request, payment_id):
 
     if request.method == 'POST':
         # Create Razorpay Order (amount in paise)
-        order_amount = int(payment.amount * 100)  # convert to paise (integer)
+        penalty_amount = payment.calculate_penalty()
+        total_payable = (payment.amount + penalty_amount).quantize(Decimal('0.01'))
+        order_amount = int(total_payable * 100)  # convert to paise (integer)
         order_currency = 'INR'
         razorpay_order = client.order.create({
             'amount': order_amount,
@@ -1209,18 +1410,24 @@ def make_payment(request, payment_id):
             'payment_capture': '1',
             'notes': {
                 'payment_id': payment.id,
-                'member_id': payment.member.id
+                'member_id': payment.member.id,
+                'penalty_amount': str(penalty_amount),
+                'base_amount': str(payment.amount),
+                'total_payable': str(total_payable),
             }
         })
+
 
         # Save transaction
         Transaction.objects.create(
             member=payment.member,
             payment=payment,
             razorpay_order_id=razorpay_order['id'],
-            amount=payment.amount,
+            # Store the actual paid total (base + frozen penalty)
+            amount=total_payable,
             status='Created'
         )
+
 
         payment_data = {
             'razorpay_key_id': RAZORPAY_KEY_ID,
@@ -1231,18 +1438,27 @@ def make_payment(request, payment_id):
             'pedi_name': payment.pedi.name if payment.pedi else '',
             'month': payment.month,
             'year': payment.year,
+            'base_amount': str(payment.amount),
+            'penalty_amount': str(penalty_amount),
+            'total_payable': str(total_payable),
         }
+
         context = {
             'payment': payment,
             'payment_data_json': payment_data,
+            'breakdown': get_payment_breakdown(payment),
             'razorpay_order_id': razorpay_order['id'],
             'razorpay_key_id': RAZORPAY_KEY_ID,
-            'amount': payment.amount,           # for display
-            'amount_paise': order_amount,       # for Razorpay (integer paise)
+            'amount': payment.amount,
+            'amount_paise': order_amount,
         }
         return render(request, 'payment_gateway.html', context)
 
-    return render(request, 'make_payment.html', {'payment': payment})
+    breakdown = get_payment_breakdown(payment)
+    return render(request, 'make_payment.html', {
+        'payment': payment,
+        'breakdown': breakdown,
+    })
 
 @login_required
 def payment_success(request):
@@ -1251,34 +1467,65 @@ def payment_success(request):
         razorpay_order_id = request.POST.get('razorpay_order_id')
         razorpay_signature = request.POST.get('razorpay_signature')
 
+        if not all([razorpay_payment_id, razorpay_order_id, razorpay_signature]):
+            messages.error(request, 'Payment verification failed: missing payment details.')
+            return redirect('member_payments')
+
         params_dict = {
             'razorpay_order_id': razorpay_order_id,
             'razorpay_payment_id': razorpay_payment_id,
-            'razorpay_signature': razorpay_signature
+            'razorpay_signature': razorpay_signature,
         }
 
         try:
             client.utility.verify_payment_signature(params_dict)
-            transaction = Transaction.objects.get(razorpay_order_id=razorpay_order_id)
-            transaction.razorpay_payment_id = razorpay_payment_id
-            transaction.razorpay_signature = razorpay_signature
-            transaction.status = 'Success'
-            transaction.save()
+        except Exception:
+            messages.error(request, 'Payment verification failed: invalid signature.')
+            return redirect('member_payments')
 
-            payment = transaction.payment
-            payment.status = 'Paid'
-            payment.payment_date = timezone.now()
-            payment.payment_method = 'Online'
-            payment.transaction_id = razorpay_payment_id
-            payment.razorpay_order_id = razorpay_order_id
-            payment.razorpay_payment_id = razorpay_payment_id
-            payment.save()
+        try:
+            with transaction.atomic():
+                txn = Transaction.objects.select_for_update().get(razorpay_order_id=razorpay_order_id)
+                if not hasattr(request.user, 'member_profile') or txn.member_id != request.user.member_profile.id:
+                    messages.error(request, 'Payment verification failed: unauthorized transaction.')
+                    return redirect('member_payments')
+
+                payment = txn.payment
+                if not payment:
+                    messages.error(request, 'Payment verification failed: payment record not found.')
+                    return redirect('member_payments')
+
+                if txn.status == 'Success' and payment.status == 'Paid':
+                    messages.success(request, 'Payment already recorded successfully.')
+                    return redirect('member_payments')
+
+                txn.razorpay_payment_id = razorpay_payment_id
+                txn.razorpay_signature = razorpay_signature
+                txn.status = 'Success'
+                txn.save(update_fields=['razorpay_payment_id', 'razorpay_signature', 'status'])
+
+                if payment.status != 'Paid':
+                    expected_total = (payment.amount + payment.calculate_penalty()).quantize(Decimal('0.01'))
+                    if txn.amount != expected_total:
+                        raise ValueError('Paid amount does not match expected payable total.')
+
+                    complete_payment(
+                        payment,
+                        payment_method='Online',
+                        transaction_id=razorpay_payment_id,
+                        razorpay_order_id=razorpay_order_id,
+                        razorpay_payment_id=razorpay_payment_id,
+                    )
 
             messages.success(request, 'Payment successful!')
             return redirect('member_payments')
+        except Transaction.DoesNotExist:
+            messages.error(request, 'Payment verification failed: transaction not found.')
+        except ValueError as exc:
+            messages.error(request, f'Payment verification failed: {exc}')
         except Exception:
-            messages.error(request, 'Payment verification failed')
-            return redirect('member_payments')
+            messages.error(request, 'Payment verification failed. Please contact support if amount was deducted.')
+        return redirect('member_payments')
 
     return redirect('member_dashboard')
 
@@ -1319,7 +1566,10 @@ def export_payments_excel(request):
     wb = Workbook()
     ws = wb.active
     ws.title = "Payments"
-    headers = ['Member', 'Pedi', 'Month', 'Year', 'Amount', 'Status', 'Payment Date']
+    headers = [
+        'Member', 'Pedi', 'Month', 'Year', 'Base Amount', 'Penalty Paid', 'Total Paid',
+        'Due Date', 'Grace Days', 'Status', 'Payment Date', 'Method', 'Transaction ID',
+    ]
     ws.append(headers)
     payments = Payment.objects.select_related('member', 'pedi').all()
     for payment in payments:
@@ -1328,9 +1578,15 @@ def export_payments_excel(request):
             payment.pedi.name,
             payment.month,
             payment.year,
-            float(payment.amount),
+            float(payment.get_contribution_collected() if payment.status == 'Paid' else payment.amount),
+            float(payment.penalty_paid or 0),
+            float(payment.get_collected_total() if payment.status == 'Paid' else payment.get_final_payable_amount()),
+            payment.get_due_date_exact().strftime('%Y-%m-%d'),
+            payment.get_display_grace_days(),
             payment.status,
-            payment.payment_date.strftime('%Y-%m-%d %H:%M') if payment.payment_date else ''
+            payment.payment_date.strftime('%Y-%m-%d %H:%M') if payment.payment_date else '',
+            payment.payment_method,
+            payment.transaction_id or '',
         ])
     response = HttpResponse(content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
     response['Content-Disposition'] = 'attachment; filename=payments.xlsx'
